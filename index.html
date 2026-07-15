@@ -19,7 +19,12 @@
     .topbar { display:flex; align-items:center; justify-content:space-between; padding:22px 0; border-bottom:1px solid var(--line); }
     .brand { font:500 17px "DM Mono",monospace; text-decoration:none; letter-spacing:-.05em; }
     .brand i { display:inline-block; width:9px; height:9px; margin:0 5px 1px 2px; border-radius:50%; background:var(--acid); box-shadow:0 0 18px var(--acid); }
-    .topbar a:last-child { font-size:13px; text-decoration:none; border-bottom:1px solid var(--acid); padding-bottom:2px; }
+    .top-actions { display:flex; align-items:center; gap:18px; }
+    .install-nav { font-size:13px; text-decoration:none; border-bottom:1px solid var(--acid); padding-bottom:2px; }
+    .github-nav { display:grid; place-items:center; width:30px; height:30px; border:1px solid var(--line); border-radius:50%; transition:background .18s ease,transform .18s ease; }
+    .github-nav:hover { background:var(--acid); transform:translateY(-2px); }
+    .github-nav img { width:16px; height:16px; filter:invert(1); }
+    .github-nav:hover img { filter:invert(0); }
     .hero { min-height:770px; padding:92px 0 58px; display:grid; grid-template-columns:minmax(0,1.04fr) minmax(420px,.96fr); align-items:center; gap:58px; position:relative; overflow:hidden; }
     .hero:before { content:""; position:absolute; width:680px; height:680px; right:-280px; top:-80px; border:1px solid rgba(204,255,61,.27); border-radius:50%; box-shadow:0 0 0 80px rgba(204,255,61,.035),0 0 0 160px rgba(204,255,61,.02); pointer-events:none; }
     .eyebrow { display:flex; gap:9px; align-items:center; color:var(--acid); font-size:11px; text-transform:uppercase; }
@@ -69,7 +74,7 @@
     .install-error { display:none; margin-top:13px; color:#b32f13; font-size:12px; }
     footer { padding:28px 0 42px; display:flex; justify-content:space-between; gap:20px; color:rgba(244,242,233,.45); font:11px "DM Mono",monospace; } footer a { color:var(--acid); text-decoration:none; }
     @media (max-width:850px) { .hero { grid-template-columns:1fr; min-height:0; padding:72px 0; } .editor-demo { justify-self:start; margin-top:12px; } .section { padding:78px 0; } .section-head { grid-template-columns:1fr; gap:16px; margin-bottom:38px; } .pain-grid { grid-template-columns:1fr; } .pain { min-height:210px; border-right:0; border-bottom:1px solid var(--line); } .pain h3 { margin-top:34px; } .flow { grid-template-columns:1fr; gap:0; } .flow-arrow { height:42px; transform:rotate(90deg); } }
-    @media (max-width:520px) { .shell { padding:0 18px; } .topbar { padding:17px 0; } .topbar a:last-child { display:none; } h1 { font-size:52px; } .lead { font-size:16px; } .hero-actions { align-items:flex-start; flex-direction:column; } .editor-demo { transform:none; box-shadow:7px 7px 0 var(--acid); } .demo-canvas { min-height:350px; padding:34px 25px; } .demo-title { font-size:35px; } .selected { left:18px; top:87px; width:250px; } .toolbox { right:10px; } footer { flex-direction:column; } }
+    @media (max-width:520px) { .shell { padding:0 18px; } .topbar { padding:17px 0; } .install-nav { display:none; } h1 { font-size:52px; } .lead { font-size:16px; } .hero-actions { align-items:flex-start; flex-direction:column; } .editor-demo { transform:none; box-shadow:7px 7px 0 var(--acid); } .demo-canvas { min-height:350px; padding:34px 25px; } .demo-title { font-size:35px; } .selected { left:18px; top:87px; width:250px; } .toolbox { right:10px; } footer { flex-direction:column; } }
   </style>
   <script>
     document.addEventListener("DOMContentLoaded", function () {
@@ -89,7 +94,7 @@
 <body>
   <main>
     <div class="shell">
-      <nav class="topbar"><a class="brand" href="#top"><i></i>HTMLive</a><a href="#install">安装书签插件 ↓</a></nav>
+      <nav class="topbar"><a class="brand" href="#top"><i></i>HTMLive</a><div class="top-actions"><a class="install-nav" href="#install">安装书签插件 ↓</a><a class="github-nav" href="https://github.com/genni613/htmlive" target="_blank" rel="noreferrer" aria-label="在 GitHub 查看 HTMLive"><img src="https://github.githubassets.com/favicons/favicon-dark.svg" alt=""></a></div></nav>
       <section class="hero" id="top">
         <div>
           <div class="eyebrow">HTML 编辑的最后一公里</div>
