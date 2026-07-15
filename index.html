@@ -21,10 +21,10 @@
     .brand i { display:inline-block; width:9px; height:9px; margin:0 5px 1px 2px; border-radius:50%; background:var(--acid); box-shadow:0 0 18px var(--acid); }
     .top-actions { display:flex; align-items:center; gap:18px; }
     .install-nav { font-size:13px; text-decoration:none; border-bottom:1px solid var(--acid); padding-bottom:2px; }
-    .github-nav { display:grid; place-items:center; width:30px; height:30px; border:1px solid var(--line); border-radius:50%; transition:background .18s ease,transform .18s ease; }
+    .github-nav { display:grid; place-items:center; width:30px; height:30px; border:1px solid rgba(244,242,233,.42); border-radius:50%; background:rgba(244,242,233,.08); transition:background .18s ease,transform .18s ease; }
     .github-nav:hover { background:var(--acid); transform:translateY(-2px); }
-    .github-nav img { width:16px; height:16px; filter:invert(1); }
-    .github-nav:hover img { filter:invert(0); }
+    .github-nav img { width:16px; height:16px; }
+    .github-nav:hover img { filter:invert(1); }
     .hero { min-height:770px; padding:92px 0 58px; display:grid; grid-template-columns:minmax(0,1.04fr) minmax(420px,.96fr); align-items:center; gap:58px; position:relative; overflow:hidden; }
     .hero:before { content:""; position:absolute; width:680px; height:680px; right:-280px; top:-80px; border:1px solid rgba(204,255,61,.27); border-radius:50%; box-shadow:0 0 0 80px rgba(204,255,61,.035),0 0 0 160px rgba(204,255,61,.02); pointer-events:none; }
     .eyebrow { display:flex; gap:9px; align-items:center; color:var(--acid); font-size:11px; text-transform:uppercase; }
