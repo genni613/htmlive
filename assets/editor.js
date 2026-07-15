@@ -864,6 +864,7 @@
     chatPanel.innerHTML = `
       <div class="${NS}-drag-handle">
         <span class="${NS}-drag-title">
+          <span class="${NS}-product-name">HTMLive</span>
           <span class="${NS}-status-dot"></span>
           <span class="${NS}-status-label">选取中</span>
         </span>

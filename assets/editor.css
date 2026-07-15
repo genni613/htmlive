@@ -277,6 +277,13 @@
   gap: 6px;
 }
 
+.ai-editor-product-name {
+  color: #333;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin-right: 2px;
+}
+
 .ai-editor-status-dot {
   width: 6px;
   height: 6px;
