@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HTMLive — 动效 HTML 即时编辑器</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><circle cx='8' cy='8' r='6' fill='%23111'/></svg>">
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    background:#fafafa;color:#333;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    min-height:100vh;display:flex;align-items:center;justify-content:center;
+  }
+  .wrap{max-width:420px;width:100%;padding:48px 32px}
+  h1{font-size:22px;font-weight:600;color:#111;margin-bottom:4px}
+  .sub{font-size:14px;color:#888;margin-bottom:40px;line-height:1.6}
+  .steps{display:flex;flex-direction:column;gap:28px}
+  .step{display:flex;gap:16px}
+  .num{font-size:13px;color:#bbb;width:20px;flex-shrink:0;padding-top:1px}
+  .step-title{font-size:14px;color:#555;margin-bottom:8px}
+  .bm{
+    display:inline-block;padding:10px 24px;
+    background:#111;color:#fff;
+    border-radius:8px;text-decoration:none;
+    font-size:14px;font-weight:500;
+    cursor:grab;transition:opacity 120ms;
+  }
+  .bm:hover{opacity:.85}
+  .bm:active{cursor:grabbing}
+  .bm.loading{background:#ccc;color:#999;cursor:wait}
+  .note{font-size:12px;color:#aaa;margin-top:6px;line-height:1.6}
+  .err{color:#c06000;font-size:12px;margin-top:8px;display:none}
+  .footer{margin-top:40px;padding-top:20px;border-top:1px solid #eee;font-size:11px;color:#ccc}
+</style>
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  var base = location.href.replace(/[^/]*$/, "");
+  var link = document.getElementById("bm-link");
+
+  Promise.all([
+    fetch(base + "assets/editor.css").then(function (r) { return r.text(); }),
+    fetch(base + "assets/editor.js").then(function (r) { return r.text(); }),
+  ])
+  .then(function (results) {
+    var css = results[0];
+    var js  = results[1];
+
+    var cssInjector = "(function(){"
+      + "var s=document.createElement('style');s.setAttribute('data-ai-editor-style','');"
+      + "s.textContent=" + JSON.stringify(css) + ";"
+      + "document.head.appendChild(s);"
+      + "})();";
+    var code = cssInjector + js;
+
+    link.href = "javascript:" + encodeURIComponent(code);
+    link.classList.remove("loading");
+  })
+  .catch(function () {
+    document.getElementById("bm-err").style.display = "block";
+    link.classList.remove("loading");
+  });
+});
+</script>
+</head>
+<body>
+<div class="wrap">
+  <h1>HTMLive</h1>
+  <p class="sub">保留 HTML 动效，像编辑 PPT 一样直接修改页面组件；可使用 AI 预览，也可导出更新后的独立 HTML。</p>
+  <div class="steps">
+    <div class="step">
+      <span class="num">1.</span>
+      <div class="step-body">
+        <div class="step-title">拖拽到书签栏</div>
+        <a class="bm loading" id="bm-link" href="#">HTMLive</a>
+        <p class="err" id="bm-err">加载失败，请确保通过 HTTP(S) 访问此页面。</p>
+      </div>
+    </div>
+    <div class="step">
+      <span class="num">2.</span>
+      <div class="step-body">
+        <div class="step-title">打开你的 HTML 页面，点击书签</div>
+        <p class="note">本地 HTML、localhost 页面及常规网页均可使用</p>
+      </div>
+    </div>
+    <div class="step">
+      <span class="num">3.</span>
+      <div class="step-body">
+        <div class="step-title">选取、编辑并导出</div>
+        <p class="note">进入编辑模式后双击改文字；拖 ⠿ 移动组件、拖 ↘ 调尺寸；「样式」可设置字体；导出 HTML 保存结果。</p>
+      </div>
+    </div>
+  </div>
+  <div class="footer">HTMLive — Edit living HTML, instantly.</div>
+</div>
+</body>
+</html>
