@@ -36,36 +36,59 @@
     .primary { background:var(--acid); color:#111; text-decoration:none; display:inline-flex; align-items:center; gap:9px; padding:15px 20px; border-radius:2px; font-weight:900; font-size:14px; box-shadow:7px 7px 0 var(--orange); transition:transform .18s ease, box-shadow .18s ease; }
     .primary:hover { transform:translate(3px,3px); box-shadow:4px 4px 0 var(--orange); }
     .hero-actions span { color:rgba(244,242,233,.52); font:11px/1.45 "DM Mono",monospace; }
-    .editor-demo { position:relative; width:100%; max-width:530px; justify-self:end; border:1px solid rgba(244,242,233,.4); background:#e9e7dc; color:#111; box-shadow:13px 13px 0 rgba(204,255,61,.9); transform:rotate(2deg); }
+    .editor-demo { position:relative; width:100%; max-width:550px; justify-self:end; border:1px solid rgba(244,242,233,.4); background:#e9e7dc; color:#111; box-shadow:13px 13px 0 rgba(204,255,61,.9); transform:rotate(1deg); }
     .demo-top { height:38px; display:flex; align-items:center; gap:6px; padding:0 12px; color:#e9e7dc; background:#1b1c18; font:10px "DM Mono",monospace; }
     .dots { display:flex; gap:4px; margin-right:5px; } .dots b { width:7px; height:7px; border-radius:50%; background:#6a6b65; } .dots b:first-child { background:var(--orange); }
-    .demo-canvas { position:relative; min-height:405px; padding:42px 39px; overflow:hidden; background:linear-gradient(115deg,#e9e7dc 55%,#d4ff52 55%); }
-    .demo-canvas:after { content:""; position:absolute; width:185px; height:185px; right:-58px; bottom:-49px; border:2px solid #111; border-radius:50%; }
+    .demo-canvas { position:relative; min-height:440px; padding:40px 38px; overflow:hidden; background:linear-gradient(115deg,#e9e7dc 58%,#d4ff52 58%); }
+    .demo-canvas:after { content:""; position:absolute; width:170px; height:170px; right:-42px; bottom:-34px; border:2px solid #111; border-radius:50%; }
     .demo-kicker { font:10px "DM Mono",monospace; }
-    .demo-text-element { position:relative; z-index:1; width:82%; margin-top:14px; animation:moveText 7s cubic-bezier(.65,0,.35,1) infinite; }
+    .demo-text-element { position:relative; z-index:1; width:76%; margin-top:18px; animation:moveText 9s cubic-bezier(.65,0,.35,1) infinite; }
     .demo-title { position:relative; height:84px; margin:0 0 11px; font-size:42px; line-height:1; letter-spacing:-.07em; font-weight:900; }
     .demo-title span { position:absolute; inset:0; }
-    .demo-title-before { animation:oldText 7s steps(1,end) infinite; }
-    .demo-title-after { opacity:0; animation:newText 7s steps(1,end) infinite; }
+    .demo-title-before { animation:oldText 9s steps(1,end) infinite; }
+    .demo-title-after { opacity:0; animation:newText 9s steps(1,end) infinite; }
     .demo-title-after:after { content:""; display:inline-block; width:3px; height:.88em; margin-left:5px; background:var(--orange); vertical-align:-.08em; animation:caretBlink .7s steps(1,end) infinite; }
-    .demo-copy { width:57%; font-size:12px; line-height:1.6; }
-    .selected { position:absolute; inset:-8px -12px -8px -10px; border:2px solid var(--orange); pointer-events:none; }
+    .demo-copy { position:relative; z-index:1; width:53%; margin-top:15px; font-size:12px; line-height:1.6; }
+    .selected { position:absolute; inset:-8px -12px -8px -10px; border:2px solid var(--orange); pointer-events:none; opacity:0; animation:showSelection 9s steps(1,end) infinite; }
     .selected:before, .selected:after { content:""; position:absolute; width:8px; height:8px; background:var(--orange); }
     .selected:before { left:-5px; top:-5px; } .selected:after { right:-5px; bottom:-5px; }
     .selection-tag { position:absolute; left:-2px; top:-29px; padding:5px 7px; background:var(--orange); color:white; font:10px "DM Mono",monospace; white-space:nowrap; }
-    .selection-tag-edit, .selection-tag-drag { animation:editLabel 7s steps(1,end) infinite; }
+    .selection-tag-edit, .selection-tag-drag { animation:editLabel 9s steps(1,end) infinite; }
     .selection-tag-drag { display:none; animation-name:dragLabel; }
-    .demo-pointer { position:absolute; z-index:4; left:315px; top:145px; width:30px; height:30px; display:grid; place-items:center; border-radius:50%; background:#111; color:var(--acid); box-shadow:3px 3px 0 var(--orange); font:18px/1 sans-serif; animation:pointerMove 7s cubic-bezier(.65,0,.35,1) infinite; }
-    .demo-pointer:after { content:"双击编辑"; position:absolute; left:37px; padding:6px 8px; color:#fff; background:#111; white-space:nowrap; font:10px "DM Mono",monospace; animation:pointerLabel 7s steps(1,end) infinite; }
+    .demo-editor-panel { position:absolute; z-index:3; right:14px; bottom:15px; width:250px; overflow:hidden; border:1px solid rgba(0,0,0,.12); border-radius:10px; background:#fff; box-shadow:0 10px 28px rgba(0,0,0,.18); font:9px/1.4 Arial,sans-serif; }
+    .mini-panel-head { height:27px; padding:0 9px; display:flex; align-items:center; border-bottom:1px solid #eee; color:#bbb; }
+    .mini-panel-head strong { color:#333; font-size:10px; }
+    .mini-panel-status { display:grid; grid-template-columns:5px auto; align-items:center; gap:4px; margin-left:7px; }
+    .mini-panel-status:before { content:""; grid-column:1; grid-row:1; width:5px; height:5px; border-radius:50%; background:#4ade80; }
+    .mini-status-off, .mini-status-on { grid-column:2; grid-row:1; animation:statusOff 9s steps(1,end) infinite; }
+    .mini-status-on { opacity:0; animation-name:statusOn; }
+    .mini-panel-window { margin-left:auto; letter-spacing:5px; color:#ccc; }
+    .mini-shortcuts { min-height:43px; padding:7px 9px 4px; display:flex; align-content:flex-start; flex-wrap:wrap; gap:4px 7px; color:#666; }
+    .mini-shortcuts kbd { padding:2px 4px; border:1px solid #d8d8d8; border-radius:2px; background:#f3f3f3; font:8px Arial,sans-serif; }
+    .mini-actions { display:grid; grid-template-columns:1fr .9fr 1fr; gap:5px; padding:0 8px 6px; }
+    .mini-actions span { min-height:27px; display:grid; place-items:center; border:1px solid #d9d9d9; border-radius:5px; background:#fff; font-weight:700; }
+    .mini-actions .mini-style { color:#bbb; background:#f4f4f4; }
+    .mini-mode { position:relative; overflow:hidden; animation:modeButton 9s steps(1,end) infinite; }
+    .mini-mode-on, .mini-mode-off { grid-area:1/1; font-style:normal; animation:statusOff 9s steps(1,end) infinite; }
+    .mini-mode-on { opacity:0; animation-name:statusOn; }
+    .mini-copy { margin:0 8px 6px; padding:7px; border-radius:5px; color:#aaa; background:#dedede; text-align:center; font-weight:700; }
+    .mini-input { height:31px; padding:0 10px; display:flex; align-items:center; gap:7px; border-top:1px solid #eee; color:#bbb; font-size:10px; }
+    .mini-input span:last-child { margin-left:auto; }
+    .demo-pointer { position:absolute; z-index:4; left:334px; top:331px; width:29px; height:29px; display:grid; place-items:center; border-radius:50%; background:#111; color:var(--acid); box-shadow:3px 3px 0 var(--orange); font:18px/1 sans-serif; animation:pointerMove 9s cubic-bezier(.65,0,.35,1) infinite; }
+    .demo-pointer:after { content:"点击进入编辑模式"; position:absolute; left:36px; padding:6px 8px; color:#fff; background:#111; white-space:nowrap; font:9px "DM Mono",monospace; animation:pointerLabel 9s steps(1,end) infinite; }
     .demo-foot { display:flex; justify-content:space-between; padding:12px; border-top:1px solid #111; font:10px "DM Mono",monospace; }
-    @keyframes oldText { 0%,16% { opacity:1; } 17%,100% { opacity:0; } }
-    @keyframes newText { 0%,16% { opacity:0; } 17%,100% { opacity:1; } }
-    @keyframes moveText { 0%,48% { transform:translate(0,0); } 64%,88% { transform:translate(38px,54px); } 100% { transform:translate(0,0); } }
+    @keyframes statusOff { 0%,14% { opacity:1; } 15%,100% { opacity:0; } }
+    @keyframes statusOn { 0%,14% { opacity:0; } 15%,100% { opacity:1; } }
+    @keyframes modeButton { 0%,11% { color:#111; background:#fff; } 12%,17% { color:#111; background:var(--acid); } 18%,100% { color:#fff; background:#111; } }
+    @keyframes oldText { 0%,32% { opacity:1; } 33%,100% { opacity:0; } }
+    @keyframes newText { 0%,32% { opacity:0; } 33%,100% { opacity:1; } }
+    @keyframes showSelection { 0%,18% { opacity:0; } 19%,100% { opacity:1; } }
+    @keyframes moveText { 0%,53% { transform:translate(0,0); } 68%,88% { transform:translate(44px,55px); } 100% { transform:translate(0,0); } }
     @keyframes caretBlink { 50% { opacity:0; } }
-    @keyframes editLabel { 0%,50% { display:inline; } 51%,100% { display:none; } }
-    @keyframes dragLabel { 0%,50% { display:none; } 51%,100% { display:inline; } }
-    @keyframes pointerMove { 0%,12% { transform:translate(0,0); } 18%,42% { transform:translate(-130px,-19px); } 48% { transform:translate(-94px,-10px); } 64%,88% { transform:translate(-56px,44px); } 100% { transform:translate(0,0); } }
-    @keyframes pointerLabel { 0%,50% { content:"双击编辑"; } 51%,100% { content:"拖动文本元素"; } }
+    @keyframes editLabel { 0%,53% { display:inline; } 54%,100% { display:none; } }
+    @keyframes dragLabel { 0%,53% { display:none; } 54%,100% { display:inline; } }
+    @keyframes pointerMove { 0%,10% { transform:translate(0,0); } 14%,18% { transform:translate(0,0) scale(.82); } 24%,48% { transform:translate(-166px,-176px); } 54% { transform:translate(-138px,-160px); } 68%,88% { transform:translate(-94px,-105px); } 100% { transform:translate(0,0); } }
+    @keyframes pointerLabel { 0%,18% { content:"点击进入编辑模式"; } 19%,53% { content:"双击编辑文字"; } 54%,100% { content:"拖动文本元素"; } }
     .strip { border-top:1px solid var(--line); border-bottom:1px solid var(--line); background:var(--acid); color:#111; }
     .strip-list { min-height:50px; margin:0; padding:0 28px; display:flex; align-items:center; justify-content:space-evenly; gap:16px; list-style:none; font:500 13px "DM Mono",monospace; }
     .strip-list li { display:flex; align-items:center; gap:16px; white-space:nowrap; }
@@ -90,7 +113,7 @@
     .install-error { display:none; margin-top:13px; color:#b32f13; font-size:12px; }
     footer { padding:28px 0 42px; display:flex; justify-content:space-between; gap:20px; color:rgba(244,242,233,.45); font:11px "DM Mono",monospace; } footer a { color:var(--acid); text-decoration:none; }
     @media (max-width:850px) { .hero { grid-template-columns:1fr; min-height:0; padding:72px 0; } .editor-demo { justify-self:start; margin-top:12px; } .strip-list { justify-content:flex-start; overflow-x:auto; scrollbar-width:none; } .strip-list::-webkit-scrollbar { display:none; } .section { padding:78px 0; } .section-head { grid-template-columns:1fr; gap:16px; margin-bottom:38px; } .pain-grid { grid-template-columns:1fr; } .pain { min-height:210px; border-right:0; border-bottom:1px solid var(--line); } .pain h3 { margin-top:34px; } .flow { grid-template-columns:1fr; gap:0; } .flow-arrow { height:42px; transform:rotate(90deg); } }
-    @media (max-width:520px) { .shell { padding:0 18px; } .topbar { padding:17px 0; } .install-nav { display:none; } h1 { font-size:52px; } .lead { font-size:16px; } .hero-actions { align-items:flex-start; flex-direction:column; } .editor-demo { transform:none; box-shadow:7px 7px 0 var(--acid); } .demo-canvas { min-height:350px; padding:34px 25px; } .demo-title { height:76px; font-size:35px; } .demo-pointer { left:260px; } footer { flex-direction:column; } }
+    @media (max-width:520px) { .shell { padding:0 18px; } .topbar { padding:17px 0; } .install-nav { display:none; } h1 { font-size:52px; } .lead { font-size:16px; } .hero-actions { align-items:flex-start; flex-direction:column; } .editor-demo { transform:none; box-shadow:7px 7px 0 var(--acid); } .demo-canvas { min-height:420px; padding:34px 25px; } .demo-title { height:76px; font-size:35px; } .demo-editor-panel { width:225px; right:8px; } .demo-pointer { left:276px; top:294px; } .demo-pointer:after { left:auto; right:36px; } footer { flex-direction:column; } }
   </style>
   <script>
     document.addEventListener("DOMContentLoaded", function () {
@@ -120,7 +143,7 @@
         </div>
         <div class="editor-demo" aria-label="HTMLive 编辑器示意图">
           <div class="demo-top"><span class="dots"><b></b><b></b><b></b></span>demo.html <span style="margin-left:auto;color:#ccff3d">EDIT MODE</span></div>
-          <div class="demo-canvas"><div class="demo-kicker">YOUR LIVE HTML / 2026</div><div class="demo-text-element"><div class="demo-title"><span class="demo-title-before">这段文字可以修改。</span><span class="demo-title-after">文字，直接改。</span></div><div class="selected"><span class="selection-tag selection-tag-edit">TEXT · 正在编辑</span><span class="selection-tag selection-tag-drag">TEXT · 正在拖动</span></div></div><div class="demo-copy">双击文字直接输入，再把整个文本元素拖到你想要的位置。</div><div class="demo-pointer">↖</div></div>
+          <div class="demo-canvas"><div class="demo-kicker">YOUR LIVE HTML / 2026</div><div class="demo-text-element"><div class="demo-title"><span class="demo-title-before">这段文字可以修改。</span><span class="demo-title-after">文字，直接改。</span></div><div class="selected"><span class="selection-tag selection-tag-edit">TEXT · 正在编辑</span><span class="selection-tag selection-tag-drag">TEXT · 正在拖动</span></div></div><div class="demo-copy">打开 HTMLive，进入编辑模式，直接修改并移动页面上的文本元素。</div><div class="demo-editor-panel"><div class="mini-panel-head"><strong>HTMLive</strong><span class="mini-panel-status"><span class="mini-status-off">选取中</span><span class="mini-status-on">编辑中</span></span><span class="mini-panel-window">— ×</span></div><div class="mini-shortcuts"><span><kbd>Click</kbd> 选取</span><span><kbd>Shift</kbd> 多选</span><span><kbd>↑↓</kbd> 导航</span><span><kbd>Space</kbd> 暂停</span><span><kbd>⌘Z</kbd> 撤销</span></div><div class="mini-actions"><span class="mini-mode"><i class="mini-mode-off">进入编辑模式</i><i class="mini-mode-on">退出编辑模式</i></span><span class="mini-style">样式</span><span>导出 HTML</span></div><div class="mini-copy">复制 Prompt</div><div class="mini-input"><span>⚙</span><span>输入指令…</span><span>⌁</span></div></div><div class="demo-pointer">↖</div></div>
           <div class="demo-foot"><span>双击 · 编辑文字</span><span>拖动 · 调整位置</span><span>导出 HTML →</span></div>
         </div>
       </section>
