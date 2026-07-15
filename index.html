@@ -42,18 +42,34 @@
     .demo-canvas { position:relative; min-height:405px; padding:42px 39px; overflow:hidden; background:linear-gradient(115deg,#e9e7dc 55%,#d4ff52 55%); }
     .demo-canvas:after { content:""; position:absolute; width:185px; height:185px; right:-58px; bottom:-49px; border:2px solid #111; border-radius:50%; }
     .demo-kicker { font:10px "DM Mono",monospace; }
-    .demo-title { width:80%; margin:14px 0 11px; font-size:42px; line-height:1; letter-spacing:-.07em; font-weight:900; }
+    .demo-text-element { position:relative; z-index:1; width:82%; margin-top:14px; animation:moveText 7s cubic-bezier(.65,0,.35,1) infinite; }
+    .demo-title { position:relative; height:84px; margin:0 0 11px; font-size:42px; line-height:1; letter-spacing:-.07em; font-weight:900; }
+    .demo-title span { position:absolute; inset:0; }
+    .demo-title-before { animation:oldText 7s steps(1,end) infinite; }
+    .demo-title-after { opacity:0; animation:newText 7s steps(1,end) infinite; }
+    .demo-title-after:after { content:""; display:inline-block; width:3px; height:.88em; margin-left:5px; background:var(--orange); vertical-align:-.08em; animation:caretBlink .7s steps(1,end) infinite; }
     .demo-copy { width:57%; font-size:12px; line-height:1.6; }
-    .selected { position:absolute; left:30px; top:98px; width:320px; height:125px; border:2px solid var(--orange); pointer-events:none; animation:pulse 2.2s infinite; }
+    .selected { position:absolute; inset:-8px -12px -8px -10px; border:2px solid var(--orange); pointer-events:none; }
     .selected:before, .selected:after { content:""; position:absolute; width:8px; height:8px; background:var(--orange); }
     .selected:before { left:-5px; top:-5px; } .selected:after { right:-5px; bottom:-5px; }
-    .selection-tag { position:absolute; left:-2px; top:-27px; padding:5px 7px; background:var(--orange); color:white; font:10px "DM Mono",monospace; }
-    .toolbox { position:absolute; z-index:2; top:191px; right:19px; display:grid; gap:7px; padding:10px; background:#111; color:#fff; box-shadow:5px 5px 0 var(--orange); font:11px "DM Mono",monospace; animation:float 4s ease-in-out infinite; }
-    .toolbox strong { color:var(--acid); font-size:15px; }
+    .selection-tag { position:absolute; left:-2px; top:-29px; padding:5px 7px; background:var(--orange); color:white; font:10px "DM Mono",monospace; white-space:nowrap; }
+    .selection-tag-edit, .selection-tag-drag { animation:editLabel 7s steps(1,end) infinite; }
+    .selection-tag-drag { display:none; animation-name:dragLabel; }
+    .demo-pointer { position:absolute; z-index:4; left:315px; top:145px; width:30px; height:30px; display:grid; place-items:center; border-radius:50%; background:#111; color:var(--acid); box-shadow:3px 3px 0 var(--orange); font:18px/1 sans-serif; animation:pointerMove 7s cubic-bezier(.65,0,.35,1) infinite; }
+    .demo-pointer:after { content:"双击编辑"; position:absolute; left:37px; padding:6px 8px; color:#fff; background:#111; white-space:nowrap; font:10px "DM Mono",monospace; animation:pointerLabel 7s steps(1,end) infinite; }
     .demo-foot { display:flex; justify-content:space-between; padding:12px; border-top:1px solid #111; font:10px "DM Mono",monospace; }
-    @keyframes pulse { 50% { border-color:#111; } } @keyframes float { 50% { transform:translateY(-8px); } }
-    .strip { border-top:1px solid var(--line); border-bottom:1px solid var(--line); overflow:hidden; white-space:nowrap; background:var(--acid); color:#111; }
-    .strip p { display:inline-block; margin:0; padding:14px 0; font:500 13px "DM Mono",monospace; animation:marquee 18s linear infinite; } @keyframes marquee { to { transform:translateX(-45%); } }
+    @keyframes oldText { 0%,16% { opacity:1; } 17%,100% { opacity:0; } }
+    @keyframes newText { 0%,16% { opacity:0; } 17%,100% { opacity:1; } }
+    @keyframes moveText { 0%,48% { transform:translate(0,0); } 64%,88% { transform:translate(38px,54px); } 100% { transform:translate(0,0); } }
+    @keyframes caretBlink { 50% { opacity:0; } }
+    @keyframes editLabel { 0%,50% { display:inline; } 51%,100% { display:none; } }
+    @keyframes dragLabel { 0%,50% { display:none; } 51%,100% { display:inline; } }
+    @keyframes pointerMove { 0%,12% { transform:translate(0,0); } 18%,42% { transform:translate(-130px,-19px); } 48% { transform:translate(-94px,-10px); } 64%,88% { transform:translate(-56px,44px); } 100% { transform:translate(0,0); } }
+    @keyframes pointerLabel { 0%,50% { content:"双击编辑"; } 51%,100% { content:"拖动文本元素"; } }
+    .strip { border-top:1px solid var(--line); border-bottom:1px solid var(--line); background:var(--acid); color:#111; }
+    .strip-list { min-height:50px; margin:0; padding:0 28px; display:flex; align-items:center; justify-content:space-evenly; gap:16px; list-style:none; font:500 13px "DM Mono",monospace; }
+    .strip-list li { display:flex; align-items:center; gap:16px; white-space:nowrap; }
+    .strip-list li:not(:last-child):after { content:"·"; opacity:.55; }
     .section { padding:128px 0; border-bottom:1px solid var(--line); }
     .section-head { display:grid; grid-template-columns:160px 1fr; gap:30px; margin-bottom:64px; }
     .section-head h2 { max-width:800px; margin:0; font-size:clamp(34px,4.5vw,62px); line-height:1.04; letter-spacing:-.07em; }
@@ -73,8 +89,8 @@
     .bookmark.loading { opacity:.45; cursor:wait; } .install-tip { color:#777; font:11px "DM Mono",monospace; }
     .install-error { display:none; margin-top:13px; color:#b32f13; font-size:12px; }
     footer { padding:28px 0 42px; display:flex; justify-content:space-between; gap:20px; color:rgba(244,242,233,.45); font:11px "DM Mono",monospace; } footer a { color:var(--acid); text-decoration:none; }
-    @media (max-width:850px) { .hero { grid-template-columns:1fr; min-height:0; padding:72px 0; } .editor-demo { justify-self:start; margin-top:12px; } .section { padding:78px 0; } .section-head { grid-template-columns:1fr; gap:16px; margin-bottom:38px; } .pain-grid { grid-template-columns:1fr; } .pain { min-height:210px; border-right:0; border-bottom:1px solid var(--line); } .pain h3 { margin-top:34px; } .flow { grid-template-columns:1fr; gap:0; } .flow-arrow { height:42px; transform:rotate(90deg); } }
-    @media (max-width:520px) { .shell { padding:0 18px; } .topbar { padding:17px 0; } .install-nav { display:none; } h1 { font-size:52px; } .lead { font-size:16px; } .hero-actions { align-items:flex-start; flex-direction:column; } .editor-demo { transform:none; box-shadow:7px 7px 0 var(--acid); } .demo-canvas { min-height:350px; padding:34px 25px; } .demo-title { font-size:35px; } .selected { left:18px; top:87px; width:250px; } .toolbox { right:10px; } footer { flex-direction:column; } }
+    @media (max-width:850px) { .hero { grid-template-columns:1fr; min-height:0; padding:72px 0; } .editor-demo { justify-self:start; margin-top:12px; } .strip-list { justify-content:flex-start; overflow-x:auto; scrollbar-width:none; } .strip-list::-webkit-scrollbar { display:none; } .section { padding:78px 0; } .section-head { grid-template-columns:1fr; gap:16px; margin-bottom:38px; } .pain-grid { grid-template-columns:1fr; } .pain { min-height:210px; border-right:0; border-bottom:1px solid var(--line); } .pain h3 { margin-top:34px; } .flow { grid-template-columns:1fr; gap:0; } .flow-arrow { height:42px; transform:rotate(90deg); } }
+    @media (max-width:520px) { .shell { padding:0 18px; } .topbar { padding:17px 0; } .install-nav { display:none; } h1 { font-size:52px; } .lead { font-size:16px; } .hero-actions { align-items:flex-start; flex-direction:column; } .editor-demo { transform:none; box-shadow:7px 7px 0 var(--acid); } .demo-canvas { min-height:350px; padding:34px 25px; } .demo-title { height:76px; font-size:35px; } .demo-pointer { left:260px; } footer { flex-direction:column; } }
   </style>
   <script>
     document.addEventListener("DOMContentLoaded", function () {
@@ -104,12 +120,12 @@
         </div>
         <div class="editor-demo" aria-label="HTMLive 编辑器示意图">
           <div class="demo-top"><span class="dots"><b></b><b></b><b></b></span>demo.html <span style="margin-left:auto;color:#ccff3d">EDIT MODE</span></div>
-          <div class="demo-canvas"><div class="demo-kicker">SUSTAINABLE / 2026</div><div class="demo-title">A page that stays alive.</div><div class="demo-copy">点击任何内容，直接改到满意。无需把整页交回给 AI 重做。</div><div class="selected"><span class="selection-tag">h1 · 已选中</span></div><div class="toolbox"><strong>样式</strong><span>颜色&nbsp;&nbsp; #FF6B35</span><span>字号&nbsp;&nbsp; 48 px</span><span>字体&nbsp;&nbsp; Noto Sans</span></div></div>
-          <div class="demo-foot"><span>↖ 拖动组件</span><span>⌘Z 撤销</span><span>导出 HTML →</span></div>
+          <div class="demo-canvas"><div class="demo-kicker">YOUR LIVE HTML / 2026</div><div class="demo-text-element"><div class="demo-title"><span class="demo-title-before">这段文字可以修改。</span><span class="demo-title-after">文字，直接改。</span></div><div class="selected"><span class="selection-tag selection-tag-edit">TEXT · 正在编辑</span><span class="selection-tag selection-tag-drag">TEXT · 正在拖动</span></div></div><div class="demo-copy">双击文字直接输入，再把整个文本元素拖到你想要的位置。</div><div class="demo-pointer">↖</div></div>
+          <div class="demo-foot"><span>双击 · 编辑文字</span><span>拖动 · 调整位置</span><span>导出 HTML →</span></div>
         </div>
       </section>
     </div>
-    <div class="strip"><p>打开 HTML　·　直接选中　·　修改文字　·　拖动组件　·　保留动效　·　导出成品　·　打开 HTML　·　直接选中　·　修改文字　·　拖动组件　·　保留动效　·　导出成品　·　</p></div>
+    <div class="strip"><ul class="strip-list" aria-label="HTMLive 核心能力"><li>打开 HTML</li><li>直接选中</li><li>修改文字</li><li>拖动元素</li><li>保留动效</li><li>导出成品</li></ul></div>
     <div class="shell">
       <section class="section">
         <div class="section-head"><div class="eyebrow">WHY</div><div><h2>AI 已经生成了 90%。<br>剩下的 10%，不该重新开始。</h2></div></div>
