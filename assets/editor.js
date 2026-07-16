@@ -41,7 +41,7 @@
   let styleDrawerOpen = false;
   const domHistory = [];
   const domRedoStack = [];
-  let pageDraftStore = { version: 1, pages: {} };
+  let pageDraftStore = { version: 1, pages: {}, sitePages: [] };
   let currentPageDraftGroups = [];
   let restoredPageDraftCount = 0;
   let pageDraftIdCounter = 0;
@@ -56,6 +56,7 @@
   function init() {
     restorePageDrafts();
     assignAiIds(document.body);
+    registerDiscoveredPages();
     createHoverBox();
     createChatPanel();
     if (restoredPageDraftCount) {
@@ -851,24 +852,58 @@
   }
 
   // ── Per-page draft session ─────────────────────────────────
-  function currentPageKey() {
-    const url = new URL(location.href);
+  function pageKeyForUrl(rawUrl = location.href) {
+    const url = new URL(rawUrl, location.href);
     url.hash = "";
     return url.pathname + url.search;
+  }
+
+  function asSitePageUrl(rawUrl) {
+    try {
+      const url = new URL(rawUrl, location.href);
+      if (!/^https?:$/.test(url.protocol) || url.origin !== location.origin) return null;
+      const extension = url.pathname.match(/\.([a-z0-9]+)$/i);
+      if (extension && !/^html?$/.test(extension[1])) return null;
+      const current = new URL(location.href);
+      const isCurrent = url.pathname === current.pathname && url.search === current.search;
+      if (!extension && !url.pathname.endsWith("/") && !isCurrent) return null;
+      url.hash = "";
+      return url;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function registerDiscoveredPages() {
+    const discovered = [];
+    const current = asSitePageUrl(location.href);
+    if (current) discovered.push({ url: current.href, label: document.title || current.pathname });
+    for (const link of document.querySelectorAll("a[href]")) {
+      const url = asSitePageUrl(link.href);
+      if (!url) continue;
+      const label = (link.textContent || "").replace(/\s+/g, " ").trim();
+      discovered.push({ url: url.href, label: label || url.pathname });
+    }
+    const pages = Array.isArray(pageDraftStore.sitePages) ? pageDraftStore.sitePages : [];
+    const byUrl = new Map(pages.map((page) => [page.url, page]));
+    for (const page of discovered) if (!byUrl.has(page.url)) byUrl.set(page.url, page);
+    pageDraftStore.sitePages = Array.from(byUrl.values());
+    persistPageDraftStore();
   }
 
   function loadPageDraftStore() {
     try {
       sessionStorage.removeItem("htmlive-batch-session-v1");
       const raw = sessionStorage.getItem(PAGE_DRAFTS_KEY);
-      if (!raw) return { version: 1, pages: {} };
+      if (!raw) return { version: 1, pages: {}, sitePages: [] };
       const stored = JSON.parse(raw);
       if (!stored || stored.version !== 1 || !stored.pages || typeof stored.pages !== "object") {
-        return { version: 1, pages: {} };
+        return { version: 1, pages: {}, sitePages: [] };
       }
+      if (!Array.isArray(stored.sitePages)) stored.sitePages = [];
       return stored;
     } catch (_) {
-      return { version: 1, pages: {} };
+      return { version: 1, pages: {}, sitePages: [] };
     }
   }
 
@@ -888,7 +923,7 @@
 
   function restorePageDrafts() {
     pageDraftStore = loadPageDraftStore();
-    const savedPage = pageDraftStore.pages[currentPageKey()];
+    const savedPage = pageDraftStore.pages[pageKeyForUrl()];
     const groups = savedPage && Array.isArray(savedPage.groups) ? savedPage.groups : [];
     currentPageDraftGroups = groups.filter((group) =>
       group && typeof group.id === "string" && Array.isArray(group.patches) && group.patches.every(isStoredPagePatch)
@@ -937,7 +972,7 @@
     if (!usable.length) return null;
     const id = `page-${Date.now()}-${pageDraftIdCounter++}`;
     currentPageDraftGroups.push({ id, patches: usable });
-    pageDraftStore.pages[currentPageKey()] = {
+    pageDraftStore.pages[pageKeyForUrl()] = {
       url: location.href,
       title: document.title,
       groups: currentPageDraftGroups,
@@ -952,13 +987,13 @@
     if (index < 0) return;
     currentPageDraftGroups.splice(index, 1);
     if (currentPageDraftGroups.length) {
-      pageDraftStore.pages[currentPageKey()] = {
+      pageDraftStore.pages[pageKeyForUrl()] = {
         url: location.href,
         title: document.title,
         groups: currentPageDraftGroups,
       };
     } else {
-      delete pageDraftStore.pages[currentPageKey()];
+      delete pageDraftStore.pages[pageKeyForUrl()];
     }
     persistPageDraftStore();
     updatePageSaveStatus(currentPageDraftGroups.length ? "已更新自动保存" : "本页暂无已保存修改");
@@ -1137,7 +1172,8 @@
         <div class="${NS}-editor-actions">
           <button class="${NS}-mode-btn" data-action="edit-mode">进入编辑模式</button>
           <button class="${NS}-style-btn" data-action="style-drawer" disabled>样式</button>
-          <button class="${NS}-export-btn" data-action="export-html">导出 HTML</button>
+          <button class="${NS}-export-btn" data-action="export-html">导出当前页</button>
+          <button class="${NS}-site-export-btn" data-action="export-site">导出全部页面</button>
         </div>
         <div class="${NS}-style-drawer" hidden>
           <div class="${NS}-drawer-title">选中组件样式</div>
@@ -1184,6 +1220,7 @@
     chatPanel.querySelector('[data-action="edit-mode"]').onclick = toggleEditMode;
     chatPanel.querySelector('[data-action="style-drawer"]').onclick = toggleStyleDrawer;
     chatPanel.querySelector('[data-action="export-html"]').onclick = exportCurrentHtml;
+    chatPanel.querySelector('[data-action="export-site"]').onclick = exportSiteHtml;
 
     chatPanel.querySelectorAll(`[data-style-prop]`).forEach((input) => {
       input.addEventListener("change", () => applyDrawerStyle(input));
@@ -1324,12 +1361,188 @@
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
+  async function exportSiteHtml() {
+    if (textEditState) finishTextEdit();
+    registerDiscoveredPages();
+    const pages = (pageDraftStore.sitePages || []).filter((page) => asSitePageUrl(page.url));
+    if (!pages.length) {
+      setSiteExportFeedback("请通过 HTTP 打开");
+      return;
+    }
+    const btn = chatPanel.querySelector('[data-action="export-site"]');
+    btn.disabled = true;
+    setSiteExportFeedback("正在整理…", 0);
+    try {
+      const results = await Promise.all(pages.map(async (page) => {
+        try {
+          const response = await fetch(page.url, { credentials: "same-origin" });
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const contentType = response.headers.get("content-type") || "";
+          if (contentType && !/html|xhtml/i.test(contentType)) throw new Error("不是 HTML 页面");
+          const source = await response.text();
+          const doc = new DOMParser().parseFromString(source, "text/html");
+          const saved = pageDraftStore.pages[pageKeyForUrl(page.url)];
+          const groups = saved && Array.isArray(saved.groups) ? saved.groups : [];
+          for (const group of groups) for (const patch of group.patches || []) applyPagePatch(doc, patch);
+          return { page, html: serializeHtmlDocument(doc) };
+        } catch (error) {
+          return { page, error: error.message || "读取失败" };
+        }
+      }));
+      const ready = results.filter((result) => result.html);
+      if (!ready.length) throw new Error("没有可导出的页面");
+      const basePath = commonPageDirectory(ready.map((result) => result.page.url));
+      const usedPaths = new Set();
+      const files = ready.map((result) => ({
+        name: sitePageZipPath(result.page.url, basePath, usedPaths),
+        content: result.html,
+      }));
+      const blob = new Blob([createStoredZip(files)], { type: "application/zip" });
+      const baseName = (document.title || "htmlive-site").replace(/[\\/:*?\"<>|]/g, "-").slice(0, 80);
+      downloadBlob(blob, `${baseName || "htmlive-site"}-all-pages.zip`);
+      const failed = results.length - ready.length;
+      setSiteExportFeedback(failed ? `已导出 ${ready.length}/${results.length} 页` : `已导出 ${ready.length} 页`);
+    } catch (error) {
+      console.error("HTMLive site export failed", error);
+      setSiteExportFeedback("导出失败");
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  function serializeHtmlDocument(doc) {
+    const doctype = doc.doctype
+      ? `<!DOCTYPE ${doc.doctype.name}${doc.doctype.publicId ? ` PUBLIC \"${doc.doctype.publicId}\"` : ""}${doc.doctype.systemId ? ` \"${doc.doctype.systemId}\"` : ""}>`
+      : "<!doctype html>";
+    return `${doctype}\n${doc.documentElement.outerHTML}`;
+  }
+
+  function commonPageDirectory(urls) {
+    const directories = urls.map((rawUrl) => {
+      const path = new URL(rawUrl).pathname;
+      return path.slice(0, path.lastIndexOf("/") + 1);
+    });
+    let prefix = directories[0] || "/";
+    while (prefix && !directories.every((directory) => directory.startsWith(prefix))) {
+      prefix = prefix.slice(0, Math.max(1, prefix.slice(0, -1).lastIndexOf("/") + 1));
+      if (prefix === "/") break;
+    }
+    return prefix || "/";
+  }
+
+  function sitePageZipPath(rawUrl, basePath, usedPaths) {
+    const url = new URL(rawUrl);
+    let decodedPath;
+    try { decodedPath = decodeURIComponent(url.pathname); } catch (_) { decodedPath = url.pathname; }
+    let path = decodedPath.slice(basePath.length).replace(/^\/+/, "");
+    if (!path || path.endsWith("/")) path += "index.html";
+    if (!/\.html?$/i.test(path)) path += ".html";
+    path = path.split("/").map((part) => part.replace(/[\\/:*?\"<>|]/g, "-") || "index.html").join("/");
+    const original = path;
+    let suffix = 2;
+    while (usedPaths.has(path)) path = original.replace(/(\.html?)$/i, `-${suffix++}$1`);
+    usedPaths.add(path);
+    return path;
+  }
+
+  function downloadBlob(blob, fileName) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = fileName;
+    a.style.display = "none";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  function crc32(bytes) {
+    let crc = 0xffffffff;
+    for (const byte of bytes) {
+      crc ^= byte;
+      for (let bit = 0; bit < 8; bit++) crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1));
+    }
+    return (crc ^ 0xffffffff) >>> 0;
+  }
+
+  function concatBytes(parts) {
+    const size = parts.reduce((total, part) => total + part.length, 0);
+    const output = new Uint8Array(size);
+    let offset = 0;
+    for (const part of parts) { output.set(part, offset); offset += part.length; }
+    return output;
+  }
+
+  function createStoredZip(files) {
+    const encoder = new TextEncoder();
+    const now = new Date();
+    const dosTime = (now.getHours() << 11) | (now.getMinutes() << 5) | Math.floor(now.getSeconds() / 2);
+    const dosDate = ((now.getFullYear() - 1980) << 9) | ((now.getMonth() + 1) << 5) | now.getDate();
+    const locals = [];
+    const centrals = [];
+    let offset = 0;
+    for (const file of files) {
+      const name = encoder.encode(file.name);
+      const content = encoder.encode(file.content);
+      const checksum = crc32(content);
+      const local = new Uint8Array(30 + name.length + content.length);
+      const localView = new DataView(local.buffer);
+      localView.setUint32(0, 0x04034b50, true);
+      localView.setUint16(4, 20, true);
+      localView.setUint16(6, 0x0800, true);
+      localView.setUint16(10, dosTime, true);
+      localView.setUint16(12, dosDate, true);
+      localView.setUint32(14, checksum, true);
+      localView.setUint32(18, content.length, true);
+      localView.setUint32(22, content.length, true);
+      localView.setUint16(26, name.length, true);
+      local.set(name, 30);
+      local.set(content, 30 + name.length);
+      locals.push(local);
+
+      const central = new Uint8Array(46 + name.length);
+      const centralView = new DataView(central.buffer);
+      centralView.setUint32(0, 0x02014b50, true);
+      centralView.setUint16(4, 20, true);
+      centralView.setUint16(6, 20, true);
+      centralView.setUint16(8, 0x0800, true);
+      centralView.setUint16(12, dosTime, true);
+      centralView.setUint16(14, dosDate, true);
+      centralView.setUint32(16, checksum, true);
+      centralView.setUint32(20, content.length, true);
+      centralView.setUint32(24, content.length, true);
+      centralView.setUint16(28, name.length, true);
+      centralView.setUint32(42, offset, true);
+      central.set(name, 46);
+      centrals.push(central);
+      offset += local.length;
+    }
+    const centralSize = centrals.reduce((total, part) => total + part.length, 0);
+    const end = new Uint8Array(22);
+    const endView = new DataView(end.buffer);
+    endView.setUint32(0, 0x06054b50, true);
+    endView.setUint16(8, files.length, true);
+    endView.setUint16(10, files.length, true);
+    endView.setUint32(12, centralSize, true);
+    endView.setUint32(16, offset, true);
+    return concatBytes([...locals, ...centrals, end]);
+  }
+
   function setExportFeedback(label) {
     const btn = chatPanel && chatPanel.querySelector('[data-action="export-html"]');
     if (!btn) return;
     const old = btn.textContent;
     btn.textContent = label;
     setTimeout(() => { btn.textContent = old; }, 1800);
+  }
+
+  function setSiteExportFeedback(label, resetMs = 1800) {
+    const btn = chatPanel && chatPanel.querySelector('[data-action="export-site"]');
+    if (!btn) return;
+    const old = "导出全部页面";
+    btn.textContent = label;
+    if (resetMs) setTimeout(() => { if (btn.isConnected) btn.textContent = old; }, resetMs);
   }
 
   const ICON_MINIMIZE = `<svg width="10" height="2" viewBox="0 0 10 2" fill="none"><line x1="0" y1="1" x2="10" y2="1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`;

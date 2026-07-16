@@ -471,7 +471,8 @@
 
 .ai-editor-mode-btn,
 .ai-editor-style-btn,
-.ai-editor-export-btn {
+.ai-editor-export-btn,
+.ai-editor-site-export-btn {
   flex: 1;
   border: 1px solid #d8d8d8;
   border-radius: 7px;
@@ -485,7 +486,8 @@
 
 .ai-editor-mode-btn:hover,
 .ai-editor-style-btn:hover,
-.ai-editor-export-btn:hover { border-color: #777; background: #f7f7f7; }
+.ai-editor-export-btn:hover,
+.ai-editor-site-export-btn:hover { border-color: #777; background: #f7f7f7; }
 .ai-editor-mode-btn.ai-editor-mode-active { background: #111; border-color: #111; color: #fff; }
 .ai-editor-style-btn.ai-editor-style-active { background: #111; border-color: #111; color: #fff; }
 .ai-editor-style-btn:disabled { color: #bbb; background: #f6f6f6; border-color: #eee; cursor: default; }
