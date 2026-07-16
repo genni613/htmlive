@@ -459,9 +459,18 @@
 .ai-editor-browse-btn:hover { border-color: #777; background: #f7f7f7; }
 .ai-editor-browse-btn.ai-editor-browse-active { border-color: #2563eb; background: #eff6ff; color: #1d4ed8; }
 
+.ai-editor-page-save-status {
+  margin: -1px 8px 6px;
+  color: #999;
+  font-size: 10px;
+  text-align: center;
+}
+
+.ai-editor-page-save-status.ai-editor-save-done { color: #15803d; }
+.ai-editor-page-save-status.ai-editor-save-error { color: #b45309; }
+
 .ai-editor-mode-btn,
 .ai-editor-style-btn,
-.ai-editor-batch-btn,
 .ai-editor-export-btn {
   flex: 1;
   border: 1px solid #d8d8d8;
@@ -476,140 +485,10 @@
 
 .ai-editor-mode-btn:hover,
 .ai-editor-style-btn:hover,
-.ai-editor-batch-btn:hover,
 .ai-editor-export-btn:hover { border-color: #777; background: #f7f7f7; }
 .ai-editor-mode-btn.ai-editor-mode-active { background: #111; border-color: #111; color: #fff; }
 .ai-editor-style-btn.ai-editor-style-active { background: #111; border-color: #111; color: #fff; }
 .ai-editor-style-btn:disabled { color: #bbb; background: #f6f6f6; border-color: #eee; cursor: default; }
-
-/* ── Cross-page batch export ─────────────────────────────── */
-.ai-editor-batch-modal {
-  position: fixed;
-  inset: 0;
-  z-index: 2147483647;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 20px;
-  background: rgba(17, 17, 17, .46);
-  user-select: none;
-}
-
-.ai-editor-batch-dialog {
-  width: min(520px, calc(100vw - 32px));
-  max-height: min(720px, calc(100vh - 32px));
-  overflow: auto;
-  border: 1px solid rgba(0, 0, 0, .12);
-  border-radius: 14px;
-  background: #fff;
-  color: #222;
-  box-shadow: 0 24px 80px rgba(0, 0, 0, .28);
-  padding: 16px;
-}
-
-.ai-editor-batch-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-}
-
-.ai-editor-batch-header strong { display: block; font-size: 15px; }
-.ai-editor-batch-header p { margin: 4px 0 0; color: #777; font-size: 11px; }
-.ai-editor-batch-header .ai-editor-panel-btn { flex: 0 0 auto; color: #777; font-size: 18px; }
-
-.ai-editor-batch-change {
-  margin-top: 14px;
-  padding: 10px 12px;
-  border-radius: 8px;
-  background: #f2f5ff;
-  color: #263d82;
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.ai-editor-batch-change-empty { background: #fff5eb; color: #8b4b12; }
-.ai-editor-batch-note { margin: 10px 0 7px; color: #888; font-size: 10px; }
-
-.ai-editor-batch-pages {
-  max-height: 210px;
-  overflow: auto;
-  border: 1px solid #e7e7e7;
-  border-radius: 9px;
-}
-
-.ai-editor-batch-page {
-  display: flex;
-  align-items: flex-start;
-  gap: 9px;
-  padding: 9px 10px;
-  border-bottom: 1px solid #eee;
-  cursor: pointer;
-}
-
-.ai-editor-batch-page:last-child { border-bottom: 0; }
-.ai-editor-batch-page:hover { background: #fafafa; }
-.ai-editor-batch-page input { margin: 2px 0 0; accent-color: #111; }
-.ai-editor-batch-page span { min-width: 0; }
-.ai-editor-batch-page strong { display: block; font-size: 11px; font-weight: 650; }
-.ai-editor-batch-page small { display: block; overflow: hidden; margin-top: 2px; color: #999; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
-
-.ai-editor-batch-url-row { display: flex; gap: 6px; margin-top: 8px; }
-.ai-editor-batch-url {
-  flex: 1;
-  min-width: 0;
-  min-height: 48px;
-  border: 1px solid #ddd;
-  border-radius: 7px;
-  padding: 5px 8px;
-  color: #222;
-  font-size: 11px;
-  outline: none;
-  resize: vertical;
-}
-.ai-editor-batch-url:focus { border-color: #777; }
-
-.ai-editor-batch-small,
-.ai-editor-batch-cancel,
-.ai-editor-batch-primary {
-  border: 1px solid #d8d8d8;
-  border-radius: 7px;
-  padding: 7px 11px;
-  background: #fff;
-  color: #333;
-  font-size: 11px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.ai-editor-batch-small:hover,
-.ai-editor-batch-cancel:hover { border-color: #999; background: #f7f7f7; }
-.ai-editor-batch-match-all { display: flex; align-items: center; gap: 6px; margin-top: 10px; color: #666; font-size: 10px; }
-.ai-editor-batch-match-all input { accent-color: #111; }
-
-.ai-editor-batch-preview {
-  margin-top: 12px;
-  border: 1px solid #e5e5e5;
-  border-radius: 9px;
-  padding: 9px;
-  background: #fafafa;
-  font-size: 11px;
-}
-.ai-editor-batch-preview > strong { display: block; margin-bottom: 5px; }
-.ai-editor-batch-result { display: flex; justify-content: space-between; gap: 12px; padding: 5px 0; border-top: 1px solid #ededed; }
-.ai-editor-batch-result:first-of-type { border-top: 0; }
-.ai-editor-batch-result span { color: #333; font-weight: 600; }
-.ai-editor-batch-result small { color: #777; text-align: right; }
-.ai-editor-batch-result-missing small,
-.ai-editor-batch-result-ambiguous small,
-.ai-editor-batch-result-error small { color: #b45309; }
-
-.ai-editor-batch-actions { display: flex; justify-content: flex-end; gap: 7px; margin-top: 14px; }
-.ai-editor-batch-primary { border-color: #111; background: #111; color: #fff; }
-.ai-editor-batch-primary:hover { background: #333; }
-.ai-editor-batch-primary:disabled,
-.ai-editor-batch-cancel:disabled,
-.ai-editor-batch-small:disabled { opacity: .4; cursor: default; }
 
 .ai-editor-style-drawer {
   margin: 8px;

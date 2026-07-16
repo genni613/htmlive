@@ -9,7 +9,7 @@
 
   const NS = "ai-editor";
   const AI_ID = "data-ai-id";
-  const BATCH_SESSION_KEY = "htmlive-batch-session-v1";
+  const PAGE_DRAFTS_KEY = "htmlive-page-drafts-v1";
 
   let selectedElements = [];
   let chatPanel = null;
@@ -41,12 +41,10 @@
   let styleDrawerOpen = false;
   const domHistory = [];
   const domRedoStack = [];
-  let batchModal = null;
-  let lastBatchPatches = [];
-  let batchPreviewResults = [];
-  let batchPagePreferences = [];
-  let batchAllowMany = false;
-  let batchSessionRestored = false;
+  let pageDraftStore = { version: 1, pages: {} };
+  let currentPageDraftGroups = [];
+  let restoredPageDraftCount = 0;
+  let pageDraftIdCounter = 0;
 
 
   function on(target, type, fn, capture) {
@@ -56,11 +54,14 @@
 
   // ── Init ───────────────────────────────────────────────────
   function init() {
-    restoreBatchSession();
+    restorePageDrafts();
     assignAiIds(document.body);
     createHoverBox();
     createChatPanel();
-    if (batchSessionRestored) addMessageBubble("ai", "已恢复上一页的批量修改，可继续同步到其他页面。");
+    if (restoredPageDraftCount) {
+      addMessageBubble("ai", `已恢复本页 ${restoredPageDraftCount} 次修改。`);
+      updatePageSaveStatus(`已恢复 ${restoredPageDraftCount} 次修改`);
+    }
 
     on(document, "mousedown", handleMouseDown, true);
     on(document, "click", handleClick, true);
@@ -122,8 +123,8 @@
             if (restored) el.replaceWith(restored);
           }
         }
+        removePageDraftGroup(snapshot.pageDraftId);
       }
-      clearBatchSession();
     }
     for (const { target, type, fn, capture } of listeners) {
       target.removeEventListener(type, fn, capture);
@@ -131,7 +132,6 @@
     destroyAllOverlays();
     removeAnnotationPopover();
     removeSettingsPopover();
-    removeBatchModal();
     if (hoverBox) hoverBox.remove();
     if (chatPanel) chatPanel.remove();
     removeCloseConfirm();
@@ -541,12 +541,6 @@
 
   function handleKeyDown(e) {
     if (isTextEditing(e.target)) return;
-    if (batchModal && e.key === "Escape") {
-      e.preventDefault();
-      removeBatchModal();
-      return;
-    }
-    if (batchModal) return;
     if (isEditorElement(e.target) && (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA")) return;
     const mod = e.metaKey || e.ctrlKey;
     if (paused) {
@@ -780,56 +774,15 @@
   }
 
   function pushDomChange(before, after) {
-    domHistory.push({ before, after });
+    const change = { before, after, pageDraftId: null };
+    domHistory.push(change);
     if (domHistory.length > 100) domHistory.shift();
     domRedoStack.length = 0;
-    if (/manual-(flex|grid)-move/.test(before.action || "")) {
-      clearBatchPatches();
-      return;
-    }
-    const patch = compileSnapshotBatchPatch(before, after);
-    if (patch) recordBatchPatches([patch]);
-    else clearBatchPatches();
+    const pagePatch = compilePagePatch(before, after);
+    if (pagePatch) change.pageDraftId = appendPageDraftGroup([pagePatch]);
   }
 
-  // ── Cross-page patch capture ───────────────────────────────
-  // A batch patch is deliberately independent from AI IDs. It can be replayed
-  // against another HTML document without asking an AI to inspect that page.
-  function escapeCss(value) {
-    if (window.CSS && typeof window.CSS.escape === "function") return window.CSS.escape(value);
-    return String(value).replace(/[^a-zA-Z0-9_-]/g, "\\$&");
-  }
-
-  function getBatchSelectorCandidates(el, fallbackSelector) {
-    if (!el || !el.tagName) return [];
-    const tag = el.tagName.toLowerCase();
-    const candidates = [];
-    if (el.id) candidates.push(`#${escapeCss(el.id)}`);
-
-    for (const attr of Array.from(el.attributes || [])) {
-      if (!attr.name.startsWith("data-") || attr.name === AI_ID || !attr.value) continue;
-      candidates.push(`${tag}[${attr.name}="${escapeCss(attr.value)}"]`);
-    }
-
-    const stableClasses = Array.from(el.classList || []).filter((name) =>
-      name && !name.startsWith("ai-editor-") && !/[0-9a-f]{8,}/i.test(name)
-    );
-    if (stableClasses.length) {
-      candidates.push(`${tag}.${stableClasses.slice(0, 3).map(escapeCss).join(".")}`);
-      candidates.push(`.${escapeCss(stableClasses[0])}`);
-    }
-    const structuralSelector = fallbackSelector || buildSelector(el);
-    if (!structuralSelector.includes(":nth-of-type")) candidates.push(structuralSelector);
-    return [...new Set(candidates.filter(Boolean))];
-  }
-
-  function buildBatchTarget(el, fallbackSelector) {
-    return {
-      selectors: getBatchSelectorCandidates(el, fallbackSelector),
-      tag: el.tagName.toLowerCase(),
-      label: elementLabel(el),
-    };
-  }
+  // ── Per-page patch capture ─────────────────────────────────
 
   function elementFromSnapshot(snapshot) {
     const holder = document.createElement("template");
@@ -837,7 +790,7 @@
     return holder.content.firstElementChild;
   }
 
-  function cleanBatchSnapshotElement(el) {
+  function cleanPageSnapshotElement(el) {
     const clean = el.cloneNode(true);
     clean.removeAttribute(AI_ID);
     clean.removeAttribute("data-ai-editor-text-editing");
@@ -850,12 +803,12 @@
     return clean;
   }
 
-  function compileSnapshotBatchPatch(before, after) {
+  function compilePagePatch(before, after) {
     const rawBeforeEl = elementFromSnapshot(before);
     const rawAfterEl = elementFromSnapshot(after);
     if (!rawBeforeEl || !rawAfterEl) return null;
-    const beforeEl = cleanBatchSnapshotElement(rawBeforeEl);
-    const snapshotAfterEl = cleanBatchSnapshotElement(rawAfterEl);
+    const beforeEl = cleanPageSnapshotElement(rawBeforeEl);
+    const snapshotAfterEl = cleanPageSnapshotElement(rawAfterEl);
 
     const operations = [];
     const beforeStyle = beforeEl.style;
@@ -885,72 +838,139 @@
       operations.push({ type: "html", html: snapshotAfterEl.innerHTML });
     }
 
-    return operations.length ? { target: buildBatchTarget(beforeEl, before.selector), operations } : null;
+    return operations.length ? { pageSelector: before.selector, operations } : null;
   }
 
-  function recordBatchPatches(patches) {
-    const usable = patches.filter((patch) => patch && patch.target && patch.operations && patch.operations.length);
-    if (!usable.length) return;
-    lastBatchPatches = usable;
-    batchPreviewResults = [];
-    batchSessionRestored = false;
-    persistBatchSession();
+  function createPageActionPatch(snapshot, operations) {
+    const rawElement = elementFromSnapshot(snapshot);
+    if (!rawElement || !operations.length) return null;
+    return {
+      pageSelector: snapshot.selector,
+      operations,
+    };
   }
 
-  function clearBatchPatches() {
-    lastBatchPatches = [];
-    batchPreviewResults = [];
-    batchSessionRestored = false;
-    persistBatchSession();
+  // ── Per-page draft session ─────────────────────────────────
+  function currentPageKey() {
+    const url = new URL(location.href);
+    url.hash = "";
+    return url.pathname + url.search;
   }
 
-  function isStoredBatchPatch(patch) {
-    return !!(
-      patch && patch.target && Array.isArray(patch.target.selectors) &&
-      typeof patch.target.tag === "string" && Array.isArray(patch.operations) &&
-      patch.operations.length
-    );
-  }
-
-  function restoreBatchSession() {
+  function loadPageDraftStore() {
     try {
-      const raw = sessionStorage.getItem(BATCH_SESSION_KEY);
-      if (!raw) return;
+      sessionStorage.removeItem("htmlive-batch-session-v1");
+      const raw = sessionStorage.getItem(PAGE_DRAFTS_KEY);
+      if (!raw) return { version: 1, pages: {} };
       const stored = JSON.parse(raw);
-      if (!stored || stored.version !== 1) return;
-      const patches = Array.isArray(stored.patches) ? stored.patches.filter(isStoredBatchPatch) : [];
-      const pages = Array.isArray(stored.pages) ? stored.pages.filter((page) =>
-        page && typeof page.url === "string" && typeof page.label === "string"
-      ) : [];
-      lastBatchPatches = patches;
-      batchPagePreferences = pages.map((page) => ({ url: page.url, label: page.label, checked: page.checked !== false }));
-      batchAllowMany = stored.allowMany === true;
-      batchSessionRestored = patches.length > 0;
-    } catch (_) { /* sessionStorage may be unavailable on restricted pages */ }
-  }
-
-  function persistBatchSession() {
-    try {
-      if (!lastBatchPatches.length && !batchPagePreferences.length) {
-        sessionStorage.removeItem(BATCH_SESSION_KEY);
-        return;
+      if (!stored || stored.version !== 1 || !stored.pages || typeof stored.pages !== "object") {
+        return { version: 1, pages: {} };
       }
-      sessionStorage.setItem(BATCH_SESSION_KEY, JSON.stringify({
-        version: 1,
-        patches: lastBatchPatches,
-        pages: batchPagePreferences,
-        allowMany: batchAllowMany,
-      }));
-    } catch (_) { /* sessionStorage may be unavailable on restricted pages */ }
+      return stored;
+    } catch (_) {
+      return { version: 1, pages: {} };
+    }
   }
 
-  function clearBatchSession() {
-    lastBatchPatches = [];
-    batchPreviewResults = [];
-    batchPagePreferences = [];
-    batchAllowMany = false;
-    batchSessionRestored = false;
-    try { sessionStorage.removeItem(BATCH_SESSION_KEY); } catch (_) { /* ignored */ }
+  function persistPageDraftStore() {
+    try {
+      sessionStorage.setItem(PAGE_DRAFTS_KEY, JSON.stringify(pageDraftStore));
+      return true;
+    } catch (_) {
+      updatePageSaveStatus("自动保存失败：会话空间不足", true);
+      return false;
+    }
+  }
+
+  function isStoredPagePatch(patch) {
+    return !!(patch && typeof patch.pageSelector === "string" && Array.isArray(patch.operations) && patch.operations.length);
+  }
+
+  function restorePageDrafts() {
+    pageDraftStore = loadPageDraftStore();
+    const savedPage = pageDraftStore.pages[currentPageKey()];
+    const groups = savedPage && Array.isArray(savedPage.groups) ? savedPage.groups : [];
+    currentPageDraftGroups = groups.filter((group) =>
+      group && typeof group.id === "string" && Array.isArray(group.patches) && group.patches.every(isStoredPagePatch)
+    );
+    restoredPageDraftCount = 0;
+    for (const group of currentPageDraftGroups) {
+      let applied = false;
+      for (const patch of group.patches) applied = applyPagePatch(document, patch) || applied;
+      if (applied) restoredPageDraftCount++;
+    }
+  }
+
+  function applyPagePatch(doc, patch) {
+    let node;
+    try { node = doc.querySelector(patch.pageSelector); } catch (_) { return false; }
+    if (!node) return false;
+    for (const operation of patch.operations) {
+      if (operation.type === "style") {
+        for (const [name, value] of Object.entries(operation.style || {})) {
+          if (value === null) node.style.removeProperty(name);
+          else node.style.setProperty(name, value);
+        }
+      } else if (operation.type === "attr") {
+        for (const [name, value] of Object.entries(operation.attributes || {})) {
+          if (value === null) node.removeAttribute(name);
+          else node.setAttribute(name, value);
+        }
+      } else if (operation.type === "html") {
+        node.innerHTML = operation.html;
+      } else if (operation.type === "remove") {
+        node.remove();
+      } else if (operation.type === "move") {
+        let target;
+        try { target = doc.querySelector(operation.targetSelector); } catch (_) { target = null; }
+        if (target && target.parentElement) {
+          if (operation.position === "before") target.parentElement.insertBefore(node, target);
+          else target.parentElement.insertBefore(node, target.nextSibling);
+        }
+      }
+    }
+    return true;
+  }
+
+  function appendPageDraftGroup(patches) {
+    const usable = patches.filter(isStoredPagePatch);
+    if (!usable.length) return null;
+    const id = `page-${Date.now()}-${pageDraftIdCounter++}`;
+    currentPageDraftGroups.push({ id, patches: usable });
+    pageDraftStore.pages[currentPageKey()] = {
+      url: location.href,
+      title: document.title,
+      groups: currentPageDraftGroups,
+    };
+    if (persistPageDraftStore()) updatePageSaveStatus("已自动保存");
+    return id;
+  }
+
+  function removePageDraftGroup(id) {
+    if (!id) return;
+    const index = currentPageDraftGroups.findIndex((group) => group.id === id);
+    if (index < 0) return;
+    currentPageDraftGroups.splice(index, 1);
+    if (currentPageDraftGroups.length) {
+      pageDraftStore.pages[currentPageKey()] = {
+        url: location.href,
+        title: document.title,
+        groups: currentPageDraftGroups,
+      };
+    } else {
+      delete pageDraftStore.pages[currentPageKey()];
+    }
+    persistPageDraftStore();
+    updatePageSaveStatus(currentPageDraftGroups.length ? "已更新自动保存" : "本页暂无已保存修改");
+  }
+
+  function updatePageSaveStatus(message, error = false) {
+    if (!chatPanel) return;
+    const status = chatPanel.querySelector(`.${NS}-page-save-status`);
+    if (!status) return;
+    status.textContent = message;
+    status.classList.toggle(`${NS}-save-error`, error);
+    status.classList.toggle(`${NS}-save-done`, !error && message !== "本页修改将自动保存");
   }
 
   function restoreSnapshot(snapshot) {
@@ -970,7 +990,8 @@
     const change = domHistory.pop();
     if (!change) return false;
     if (restoreSnapshot(change.before)) domRedoStack.push(change);
-    clearBatchPatches();
+    removePageDraftGroup(change.pageDraftId);
+    change.pageDraftId = null;
     positionAllOverlays();
     return true;
   }
@@ -980,8 +1001,10 @@
     if (!change) return false;
     if (restoreSnapshot(change.after)) {
       domHistory.push(change);
-      const patch = compileSnapshotBatchPatch(change.before, change.after);
-      if (patch) recordBatchPatches([patch]);
+      const patch = compilePagePatch(change.before, change.after);
+      if (patch) {
+        change.pageDraftId = appendPageDraftGroup([patch]);
+      }
     }
     positionAllOverlays();
     return true;
@@ -1110,10 +1133,10 @@
           <span><kbd>Esc</kbd> 清除</span>
         </div>
         <button class="${NS}-browse-btn" data-action="browse-mode">浏览页面</button>
+        <div class="${NS}-page-save-status">本页修改将自动保存</div>
         <div class="${NS}-editor-actions">
           <button class="${NS}-mode-btn" data-action="edit-mode">进入编辑模式</button>
           <button class="${NS}-style-btn" data-action="style-drawer" disabled>样式</button>
-          <button class="${NS}-batch-btn" data-action="batch-pages">批量页面</button>
           <button class="${NS}-export-btn" data-action="export-html">导出 HTML</button>
         </div>
         <div class="${NS}-style-drawer" hidden>
@@ -1160,7 +1183,6 @@
     chatPanel.querySelector('[data-action="browse-mode"]').onclick = togglePaused;
     chatPanel.querySelector('[data-action="edit-mode"]').onclick = toggleEditMode;
     chatPanel.querySelector('[data-action="style-drawer"]').onclick = toggleStyleDrawer;
-    chatPanel.querySelector('[data-action="batch-pages"]').onclick = showBatchModal;
     chatPanel.querySelector('[data-action="export-html"]').onclick = exportCurrentHtml;
 
     chatPanel.querySelectorAll(`[data-style-prop]`).forEach((input) => {
@@ -1300,396 +1322,6 @@
     a.click();
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
-  }
-
-  // ── Cross-page batch export ────────────────────────────────
-  function isBatchPageUrl(rawUrl) {
-    try {
-      const url = new URL(rawUrl, location.href);
-      if (!/^https?:$/.test(url.protocol) || url.origin !== location.origin) return null;
-      const extension = url.pathname.match(/\.([a-z0-9]+)$/i);
-      if (extension && !/^html?$/.test(extension[1])) return null;
-      url.hash = "";
-      return url;
-    } catch (_) {
-      return null;
-    }
-  }
-
-  function discoverBatchPages() {
-    const currentUrl = new URL(location.href);
-    currentUrl.hash = "";
-    const pages = [{ url: currentUrl.href, label: "当前页", current: true }];
-    const seen = new Set([currentUrl.href]);
-    const links = [
-      ...document.querySelectorAll("nav a[href]"),
-      ...document.querySelectorAll("a[href]"),
-    ];
-    for (const link of links) {
-      const url = isBatchPageUrl(link.href);
-      if (!url || seen.has(url.href)) continue;
-      seen.add(url.href);
-      const label = (link.textContent || "").replace(/\s+/g, " ").trim();
-      pages.push({ url: url.href, label: label || url.pathname || url.href, current: false });
-    }
-    for (const preferred of batchPagePreferences) {
-      const url = isBatchPageUrl(preferred.url);
-      if (!url) continue;
-      const existing = pages.find((page) => page.url === url.href);
-      if (existing) existing.checked = preferred.checked !== false;
-      else pages.push({ url: url.href, label: preferred.label || url.pathname, current: false, checked: preferred.checked !== false });
-    }
-    return pages;
-  }
-
-  function showBatchModal() {
-    removeBatchModal();
-    const modal = document.createElement("div");
-    modal.className = `${NS}-root ${NS}-batch-modal`;
-    modal.innerHTML = `
-      <div class="${NS}-batch-dialog" role="dialog" aria-modal="true" aria-label="批量应用到页面">
-        <div class="${NS}-batch-header">
-          <div><strong>批量应用到页面</strong><p>将最近一次修改同步到同一站点的静态 HTML 页面。</p></div>
-          <button class="${NS}-panel-btn" data-batch-action="close" title="关闭">×</button>
-        </div>
-        <div class="${NS}-batch-change"></div>
-        <div class="${NS}-batch-note">当前页会一并导出；其余页面来自导航链接。也可手动添加同域 URL。</div>
-        <div class="${NS}-batch-pages"></div>
-        <div class="${NS}-batch-url-row">
-          <textarea class="${NS}-batch-url" rows="2" placeholder="粘贴同域页面 URL，多个可换行"></textarea>
-          <button class="${NS}-batch-small" data-batch-action="add-url">添加</button>
-        </div>
-        <label class="${NS}-batch-match-all"><input type="checkbox" data-batch-action="match-all" /> 对每页所有匹配元素应用</label>
-        <div class="${NS}-batch-preview" hidden></div>
-        <div class="${NS}-batch-actions">
-          <button class="${NS}-batch-cancel" data-batch-action="close">取消</button>
-          <button class="${NS}-batch-primary" data-batch-action="preview">预览修改</button>
-          <button class="${NS}-batch-primary" data-batch-action="download" disabled>下载 ZIP</button>
-        </div>
-      </div>
-    `;
-    modal._pages = discoverBatchPages();
-    document.body.appendChild(modal);
-    batchModal = modal;
-
-    const change = modal.querySelector(`.${NS}-batch-change`);
-    if (!lastBatchPatches.length) {
-      change.classList.add(`${NS}-batch-change-empty`);
-      change.textContent = "请先完成一次文字、样式或属性修改，再批量同步。";
-      modal.querySelector('[data-batch-action="preview"]').disabled = true;
-    } else {
-      const prefix = batchSessionRestored ? "已恢复上一页修改" : "将同步最近一次修改";
-      change.textContent = `${prefix}：${lastBatchPatches.map((patch) => patch.target.label).join("、")}`;
-    }
-
-    renderBatchPages(modal);
-    const matchAll = modal.querySelector('[data-batch-action="match-all"]');
-    matchAll.checked = batchAllowMany;
-    modal.querySelectorAll('[data-batch-action="close"]').forEach((btn) => { btn.onclick = removeBatchModal; });
-    modal.querySelector('[data-batch-action="add-url"]').onclick = () => addBatchUrls(modal);
-    modal.querySelector('[data-batch-action="preview"]').onclick = () => previewBatchPages(modal);
-    modal.querySelector('[data-batch-action="download"]').onclick = () => downloadBatchZip(modal);
-    matchAll.onchange = () => {
-      batchAllowMany = matchAll.checked;
-      saveBatchPagePreferences(modal);
-      clearBatchPreview(modal);
-    };
-    modal.addEventListener("click", (e) => { if (e.target === modal) removeBatchModal(); });
-    modal.addEventListener("keydown", (e) => e.stopPropagation());
-  }
-
-  function removeBatchModal() {
-    if (batchModal) {
-      batchModal.remove();
-      batchModal = null;
-    }
-  }
-
-  function renderBatchPages(modal) {
-    const list = modal.querySelector(`.${NS}-batch-pages`);
-    list.textContent = "";
-    for (const [index, page] of modal._pages.entries()) {
-      const row = document.createElement("label");
-      row.className = `${NS}-batch-page`;
-      const check = document.createElement("input");
-      check.type = "checkbox";
-      check.checked = page.current || page.checked !== false;
-      check.disabled = page.current;
-      check.dataset.pageIndex = index;
-      check.addEventListener("change", () => {
-        page.checked = check.checked;
-        saveBatchPagePreferences(modal);
-        clearBatchPreview(modal);
-      });
-      const content = document.createElement("span");
-      const title = document.createElement("strong");
-      title.textContent = page.label;
-      const url = document.createElement("small");
-      url.textContent = page.current ? "当前正在编辑的页面" : page.url;
-      content.appendChild(title);
-      content.appendChild(url);
-      row.appendChild(check);
-      row.appendChild(content);
-      list.appendChild(row);
-    }
-  }
-
-  function addBatchUrls(modal) {
-    const input = modal.querySelector(`.${NS}-batch-url`);
-    const values = input.value.split(/[\n,]/).map((value) => value.trim()).filter(Boolean);
-    const existing = new Set(modal._pages.map((page) => page.url));
-    for (const value of values) {
-      const url = isBatchPageUrl(value);
-      if (!url || existing.has(url.href)) continue;
-      existing.add(url.href);
-      modal._pages.push({ url: url.href, label: url.pathname || url.href, current: false, checked: true });
-    }
-    input.value = "";
-    renderBatchPages(modal);
-    saveBatchPagePreferences(modal);
-    clearBatchPreview(modal);
-  }
-
-  function saveBatchPagePreferences(modal) {
-    batchPagePreferences = modal._pages.map((page) => ({
-      url: page.url,
-      label: page.label,
-      checked: page.current || page.checked !== false,
-    }));
-    persistBatchSession();
-  }
-
-  function clearBatchPreview(modal) {
-    batchPreviewResults = [];
-    const preview = modal.querySelector(`.${NS}-batch-preview`);
-    preview.hidden = true;
-    preview.textContent = "";
-    modal.querySelector('[data-batch-action="download"]').disabled = true;
-  }
-
-  function getSelectedBatchPages(modal) {
-    return modal._pages.filter((page, index) => page.current || !!modal.querySelector(`[data-page-index="${index}"]`)?.checked);
-  }
-
-  function findBatchTargets(doc, target, allowMany) {
-    let firstMany = null;
-    for (const selector of target.selectors) {
-      let nodes;
-      try {
-        nodes = Array.from(doc.querySelectorAll(selector)).filter((node) => node.tagName.toLowerCase() === target.tag);
-      } catch (_) {
-        continue;
-      }
-      if (nodes.length === 1) return { nodes, selector };
-      if (nodes.length > 1) {
-        if (allowMany) return { nodes, selector };
-        if (!firstMany) firstMany = { nodes, selector };
-      }
-    }
-    return firstMany || { nodes: [], selector: null };
-  }
-
-  function applyBatchPatchToDocument(doc, patch, allowMany) {
-    const found = findBatchTargets(doc, patch.target, allowMany);
-    if (!found.nodes.length) return { status: "missing", patch, count: 0 };
-    if (!allowMany && found.nodes.length !== 1) return { status: "ambiguous", patch, count: found.nodes.length, selector: found.selector };
-    for (const node of found.nodes) {
-      for (const operation of patch.operations) {
-        if (operation.type === "style") {
-          for (const [name, value] of Object.entries(operation.style)) {
-            if (value === null) node.style.removeProperty(name);
-            else node.style.setProperty(name, value);
-          }
-        } else if (operation.type === "attr") {
-          for (const [name, value] of Object.entries(operation.attributes)) {
-            if (value === null) node.removeAttribute(name);
-            else node.setAttribute(name, value);
-          }
-        } else if (operation.type === "html") {
-          node.innerHTML = operation.html;
-        }
-      }
-    }
-    return { status: "ready", patch, count: found.nodes.length, selector: found.selector };
-  }
-
-  function serializeHtmlDocument(doc) {
-    const doctype = doc.doctype
-      ? `<!DOCTYPE ${doc.doctype.name}${doc.doctype.publicId ? ` PUBLIC \"${doc.doctype.publicId}\"` : ""}${doc.doctype.systemId ? ` \"${doc.doctype.systemId}\"` : ""}>`
-      : "<!doctype html>";
-    return `${doctype}\n${doc.documentElement.outerHTML}`;
-  }
-
-  async function loadBatchPage(page) {
-    if (page.current) return buildExportHtml();
-    const response = await fetch(page.url, { credentials: "same-origin" });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    return response.text();
-  }
-
-  async function previewBatchPages(modal) {
-    if (!lastBatchPatches.length) return;
-    const previewBtn = modal.querySelector('[data-batch-action="preview"]');
-    const downloadBtn = modal.querySelector('[data-batch-action="download"]');
-    const preview = modal.querySelector(`.${NS}-batch-preview`);
-    const pages = getSelectedBatchPages(modal);
-    const allowMany = modal.querySelector('[data-batch-action="match-all"]').checked;
-    previewBtn.disabled = true;
-    downloadBtn.disabled = true;
-    preview.hidden = false;
-    preview.textContent = "正在读取页面并生成预览…";
-
-    const results = await Promise.all(pages.map(async (page) => {
-      try {
-        const source = await loadBatchPage(page);
-        const doc = new DOMParser().parseFromString(source, "text/html");
-        const patches = lastBatchPatches.map((patch) => applyBatchPatchToDocument(doc, patch, allowMany));
-        const blocked = patches.find((result) => result.status !== "ready");
-        if (blocked) {
-          return { page, status: blocked.status, count: blocked.count, selector: blocked.selector };
-        }
-        return { page, status: "ready", count: patches.reduce((total, result) => total + result.count, 0), html: serializeHtmlDocument(doc) };
-      } catch (err) {
-        return { page, status: "error", error: err.message || "读取失败" };
-      }
-    }));
-    batchPreviewResults = results;
-    renderBatchPreview(modal, results);
-    previewBtn.disabled = false;
-    downloadBtn.disabled = !results.some((result) => result.status === "ready");
-  }
-
-  function renderBatchPreview(modal, results) {
-    const preview = modal.querySelector(`.${NS}-batch-preview`);
-    preview.textContent = "";
-    const title = document.createElement("strong");
-    title.textContent = "预览结果";
-    preview.appendChild(title);
-    for (const result of results) {
-      const row = document.createElement("div");
-      row.className = `${NS}-batch-result ${NS}-batch-result-${result.status}`;
-      const label = document.createElement("span");
-      label.textContent = result.page.label;
-      const detail = document.createElement("small");
-      if (result.status === "ready") detail.textContent = `将修改 ${result.count} 个元素`;
-      else if (result.status === "missing") detail.textContent = "未找到对应元素，未导出此页";
-      else if (result.status === "ambiguous") detail.textContent = `匹配到 ${result.count} 个元素，请勾选“全部匹配”或缩小目标`;
-      else detail.textContent = `无法读取：${result.error}`;
-      row.appendChild(label);
-      row.appendChild(detail);
-      preview.appendChild(row);
-    }
-  }
-
-  function batchZipPath(page, usedPaths) {
-    const url = new URL(page.url);
-    let decodedPath;
-    try { decodedPath = decodeURIComponent(url.pathname); } catch (_) { decodedPath = url.pathname; }
-    let path = decodedPath.replace(/^\/+/, "");
-    if (!path || path.endsWith("/")) path += "index.html";
-    if (!/\.html?$/i.test(path)) path += ".html";
-    path = path.split("/").map((part) => part.replace(/[\\\\/:*?\"<>|]/g, "-") || "index.html").join("/");
-    const original = path;
-    let suffix = 2;
-    while (usedPaths.has(path)) {
-      path = original.replace(/(\.html?)$/i, `-${suffix}$1`);
-      suffix++;
-    }
-    usedPaths.add(path);
-    return path;
-  }
-
-  function downloadBatchZip(modal) {
-    const ready = batchPreviewResults.filter((result) => result.status === "ready");
-    if (!ready.length) return;
-    const usedPaths = new Set();
-    const files = ready.map((result) => ({ name: batchZipPath(result.page, usedPaths), content: result.html }));
-    const blob = new Blob([createStoredZip(files)], { type: "application/zip" });
-    const baseName = (document.title || "htmlive-pages").replace(/[\\\\/:*?\"<>|]/g, "-").slice(0, 80);
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${baseName || "htmlive-pages"}-edited-pages.zip`;
-    a.style.display = "none";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-    const btn = modal.querySelector('[data-batch-action="download"]');
-    btn.textContent = "已下载";
-    setTimeout(() => { if (btn.isConnected) btn.textContent = "下载 ZIP"; }, 1800);
-  }
-
-  function crc32(bytes) {
-    let crc = 0xffffffff;
-    for (const byte of bytes) {
-      crc ^= byte;
-      for (let bit = 0; bit < 8; bit++) crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1));
-    }
-    return (crc ^ 0xffffffff) >>> 0;
-  }
-
-  function concatBytes(parts) {
-    const size = parts.reduce((total, part) => total + part.length, 0);
-    const output = new Uint8Array(size);
-    let offset = 0;
-    for (const part of parts) { output.set(part, offset); offset += part.length; }
-    return output;
-  }
-
-  function createStoredZip(files) {
-    const encoder = new TextEncoder();
-    const now = new Date();
-    const dosTime = (now.getHours() << 11) | (now.getMinutes() << 5) | Math.floor(now.getSeconds() / 2);
-    const dosDate = ((now.getFullYear() - 1980) << 9) | ((now.getMonth() + 1) << 5) | now.getDate();
-    const locals = [];
-    const centrals = [];
-    let offset = 0;
-    for (const file of files) {
-      const name = encoder.encode(file.name);
-      const content = encoder.encode(file.content);
-      const checksum = crc32(content);
-      const local = new Uint8Array(30 + name.length + content.length);
-      const localView = new DataView(local.buffer);
-      localView.setUint32(0, 0x04034b50, true);
-      localView.setUint16(4, 20, true);
-      localView.setUint16(6, 0x0800, true);
-      localView.setUint16(10, dosTime, true);
-      localView.setUint16(12, dosDate, true);
-      localView.setUint32(14, checksum, true);
-      localView.setUint32(18, content.length, true);
-      localView.setUint32(22, content.length, true);
-      localView.setUint16(26, name.length, true);
-      local.set(name, 30);
-      local.set(content, 30 + name.length);
-      locals.push(local);
-
-      const central = new Uint8Array(46 + name.length);
-      const centralView = new DataView(central.buffer);
-      centralView.setUint32(0, 0x02014b50, true);
-      centralView.setUint16(4, 20, true);
-      centralView.setUint16(6, 20, true);
-      centralView.setUint16(8, 0x0800, true);
-      centralView.setUint16(12, dosTime, true);
-      centralView.setUint16(14, dosDate, true);
-      centralView.setUint32(16, checksum, true);
-      centralView.setUint32(20, content.length, true);
-      centralView.setUint32(24, content.length, true);
-      centralView.setUint16(28, name.length, true);
-      centralView.setUint32(42, offset, true);
-      central.set(name, 46);
-      centrals.push(central);
-      offset += local.length;
-    }
-    const centralSize = centrals.reduce((total, part) => total + part.length, 0);
-    const end = new Uint8Array(22);
-    const endView = new DataView(end.buffer);
-    endView.setUint32(0, 0x06054b50, true);
-    endView.setUint16(8, files.length, true);
-    endView.setUint16(10, files.length, true);
-    endView.setUint32(12, centralSize, true);
-    endView.setUint32(16, offset, true);
-    return concatBytes([...locals, ...centrals, end]);
   }
 
   function setExportFeedback(label) {
@@ -2431,8 +2063,9 @@
       snapshotId: snapshotIdCounter++,
       entries: [],
       messageEl: aiBubble,
+      pageDraftId: null,
     };
-    const batchPatches = [];
+    const pageDraftPatches = [];
 
     for (const item of mods) {
       const el = locateElement(item);
@@ -2440,6 +2073,7 @@
 
       const entry = createElementSnapshot(el, item.action);
       snapshot.entries.push(entry);
+      let specialPagePatch = null;
 
       switch (item.action) {
         case "style":
@@ -2461,29 +2095,34 @@
             : item.target ? document.querySelector(item.target)
             : null;
           if (targetEl && targetEl.parentElement) {
+            const targetSelector = buildSelector(targetEl);
             if (item.position === "before") targetEl.parentElement.insertBefore(el, targetEl);
             else targetEl.parentElement.insertBefore(el, targetEl.nextSibling);
+            specialPagePatch = createPageActionPatch(entry, [{ type: "move", targetSelector, position: item.position }]);
           }
           break;
         }
         case "remove":
+          specialPagePatch = createPageActionPatch(entry, [{ type: "remove" }]);
           el.remove();
           break;
       }
 
       if (["style", "html", "attr"].includes(item.action)) {
         const after = createElementSnapshot(el, item.action);
-        const patch = compileSnapshotBatchPatch(entry, after);
-        if (patch) batchPatches.push(patch);
+        const patch = compilePagePatch(entry, after);
+        if (patch) {
+          pageDraftPatches.push(patch);
+        }
       }
+      if (specialPagePatch) pageDraftPatches.push(specialPagePatch);
     }
 
     rebindSelections();
     positionAllOverlays();
 
     snapshotStack.push(snapshot);
-    if (batchPatches.length) recordBatchPatches(batchPatches);
-    else clearBatchPatches();
+    snapshot.pageDraftId = appendPageDraftGroup(pageDraftPatches);
 
     aiBubble.textContent = displayText || "已应用修改。";
 
@@ -2576,7 +2215,7 @@
 
     const idx = snapshotStack.indexOf(snapshot);
     if (idx >= 0) snapshotStack.splice(idx, 1);
-    clearBatchPatches();
+    removePageDraftGroup(snapshot.pageDraftId);
   }
 
   // ── Boot ───────────────────────────────────────────────────
