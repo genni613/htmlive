@@ -9,6 +9,7 @@
 
   const NS = "ai-editor";
   const AI_ID = "data-ai-id";
+  const BATCH_SESSION_KEY = "htmlive-batch-session-v1";
 
   let selectedElements = [];
   let chatPanel = null;
@@ -43,6 +44,9 @@
   let batchModal = null;
   let lastBatchPatches = [];
   let batchPreviewResults = [];
+  let batchPagePreferences = [];
+  let batchAllowMany = false;
+  let batchSessionRestored = false;
 
 
   function on(target, type, fn, capture) {
@@ -52,9 +56,11 @@
 
   // ── Init ───────────────────────────────────────────────────
   function init() {
+    restoreBatchSession();
     assignAiIds(document.body);
     createHoverBox();
     createChatPanel();
+    if (batchSessionRestored) addMessageBubble("ai", "已恢复上一页的批量修改，可继续同步到其他页面。");
 
     on(document, "mousedown", handleMouseDown, true);
     on(document, "click", handleClick, true);
@@ -81,7 +87,7 @@
       showCloseConfirm();
       return;
     }
-    doDestroy(false);
+    doDestroy(true);
   }
 
   function doDestroy(keepChanges) {
@@ -117,6 +123,7 @@
           }
         }
       }
+      clearBatchSession();
     }
     for (const { target, type, fn, capture } of listeners) {
       target.removeEventListener(type, fn, capture);
@@ -316,6 +323,7 @@
     if (isEditorElement(e.target)) return;
     if (minimized || paused) return;
     if (wasJustDragging) return;
+    if ((e.metaKey || e.ctrlKey) && e.target.closest && e.target.closest("a[href]")) return;
 
     e.preventDefault();
     e.stopPropagation();
@@ -538,8 +546,17 @@
       removeBatchModal();
       return;
     }
+    if (batchModal) return;
     if (isEditorElement(e.target) && (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA")) return;
     const mod = e.metaKey || e.ctrlKey;
+    if (paused) {
+      if (e.target.closest && e.target.closest('input, textarea, select, button, a, [contenteditable="true"]')) return;
+      if (e.key === " " && !mod && !e.altKey) {
+        e.preventDefault();
+        togglePaused();
+      }
+      return;
+    }
 
     if (e.key === "Escape") {
       if (activePopover) { removeAnnotationPopover(); }
@@ -585,7 +602,7 @@
   }
 
   function handleDoubleClick(e) {
-    if (!editMode || isEditorElement(e.target)) return;
+    if (!editMode || paused || isEditorElement(e.target)) return;
     const el = resolveTarget(e.target);
     if (!el || /^(IMG|VIDEO|SVG|CANVAS|INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) return;
     e.preventDefault();
@@ -596,7 +613,12 @@
   function startTextEdit(el) {
     if (textEditState) finishTextEdit();
     const before = createElementSnapshot(el, "manual-text");
-    textEditState = { el, before };
+    textEditState = {
+      el,
+      before,
+      originalContentEditable: el.getAttribute("contenteditable"),
+      originalSpellcheck: el.getAttribute("spellcheck"),
+    };
     el.setAttribute("data-ai-editor-text-editing", "true");
     el.contentEditable = "true";
     el.spellcheck = true;
@@ -611,8 +633,11 @@
 
   function finishTextEdit(record = true) {
     if (!textEditState) return;
-    const { el, before } = textEditState;
-    el.contentEditable = "false";
+    const { el, before, originalContentEditable, originalSpellcheck } = textEditState;
+    if (originalContentEditable === null) el.removeAttribute("contenteditable");
+    else el.setAttribute("contenteditable", originalContentEditable);
+    if (originalSpellcheck === null) el.removeAttribute("spellcheck");
+    else el.setAttribute("spellcheck", originalSpellcheck);
     el.removeAttribute("data-ai-editor-text-editing");
     textEditState = null;
     if (record && el.outerHTML !== before.outerHTML) pushDomChange(before, createElementSnapshot(el, "manual-text"));
@@ -759,16 +784,12 @@
     if (domHistory.length > 100) domHistory.shift();
     domRedoStack.length = 0;
     if (/manual-(flex|grid)-move/.test(before.action || "")) {
-      lastBatchPatches = [];
-      batchPreviewResults = [];
+      clearBatchPatches();
       return;
     }
     const patch = compileSnapshotBatchPatch(before, after);
     if (patch) recordBatchPatches([patch]);
-    else {
-      lastBatchPatches = [];
-      batchPreviewResults = [];
-    }
+    else clearBatchPatches();
   }
 
   // ── Cross-page patch capture ───────────────────────────────
@@ -872,6 +893,64 @@
     if (!usable.length) return;
     lastBatchPatches = usable;
     batchPreviewResults = [];
+    batchSessionRestored = false;
+    persistBatchSession();
+  }
+
+  function clearBatchPatches() {
+    lastBatchPatches = [];
+    batchPreviewResults = [];
+    batchSessionRestored = false;
+    persistBatchSession();
+  }
+
+  function isStoredBatchPatch(patch) {
+    return !!(
+      patch && patch.target && Array.isArray(patch.target.selectors) &&
+      typeof patch.target.tag === "string" && Array.isArray(patch.operations) &&
+      patch.operations.length
+    );
+  }
+
+  function restoreBatchSession() {
+    try {
+      const raw = sessionStorage.getItem(BATCH_SESSION_KEY);
+      if (!raw) return;
+      const stored = JSON.parse(raw);
+      if (!stored || stored.version !== 1) return;
+      const patches = Array.isArray(stored.patches) ? stored.patches.filter(isStoredBatchPatch) : [];
+      const pages = Array.isArray(stored.pages) ? stored.pages.filter((page) =>
+        page && typeof page.url === "string" && typeof page.label === "string"
+      ) : [];
+      lastBatchPatches = patches;
+      batchPagePreferences = pages.map((page) => ({ url: page.url, label: page.label, checked: page.checked !== false }));
+      batchAllowMany = stored.allowMany === true;
+      batchSessionRestored = patches.length > 0;
+    } catch (_) { /* sessionStorage may be unavailable on restricted pages */ }
+  }
+
+  function persistBatchSession() {
+    try {
+      if (!lastBatchPatches.length && !batchPagePreferences.length) {
+        sessionStorage.removeItem(BATCH_SESSION_KEY);
+        return;
+      }
+      sessionStorage.setItem(BATCH_SESSION_KEY, JSON.stringify({
+        version: 1,
+        patches: lastBatchPatches,
+        pages: batchPagePreferences,
+        allowMany: batchAllowMany,
+      }));
+    } catch (_) { /* sessionStorage may be unavailable on restricted pages */ }
+  }
+
+  function clearBatchSession() {
+    lastBatchPatches = [];
+    batchPreviewResults = [];
+    batchPagePreferences = [];
+    batchAllowMany = false;
+    batchSessionRestored = false;
+    try { sessionStorage.removeItem(BATCH_SESSION_KEY); } catch (_) { /* ignored */ }
   }
 
   function restoreSnapshot(snapshot) {
@@ -891,8 +970,7 @@
     const change = domHistory.pop();
     if (!change) return false;
     if (restoreSnapshot(change.before)) domRedoStack.push(change);
-    lastBatchPatches = [];
-    batchPreviewResults = [];
+    clearBatchPatches();
     positionAllOverlays();
     return true;
   }
@@ -912,10 +990,19 @@
   function togglePaused() {
     paused = !paused;
     showHover(null);
+    refreshInteractionState();
+  }
+
+  function refreshInteractionState() {
     const dot = chatPanel.querySelector(`.${NS}-status-dot`);
     const label = chatPanel.querySelector(`.${NS}-status-label`);
-    if (dot) dot.style.background = paused ? "#888" : "#4ade80";
-    if (label) label.textContent = paused ? "已暂停" : "选取中";
+    const browseBtn = chatPanel.querySelector('[data-action="browse-mode"]');
+    if (dot) dot.style.background = paused ? "#3b82f6" : "#4ade80";
+    if (label) label.textContent = paused ? "浏览页面" : (editMode ? "直接编辑" : "选取中");
+    if (browseBtn) {
+      browseBtn.textContent = paused ? "继续编辑" : "浏览页面";
+      browseBtn.classList.toggle(`${NS}-browse-active`, paused);
+    }
   }
 
   // ── Annotation popover ─────────────────────────────────────
@@ -1017,11 +1104,12 @@
           <span><kbd>Click</kbd> 选取</span>
           <span><kbd>Shift</kbd> 多选</span>
           <span><kbd>\u2191\u2193</kbd> 导航</span>
-          <span><kbd>Space</kbd> 暂停</span>
+          <span><kbd>Space</kbd> 浏览</span>
           <span><kbd>\u2318C</kbd> 复制</span>
           <span><kbd>\u2318Z</kbd> 撤销</span>
           <span><kbd>Esc</kbd> 清除</span>
         </div>
+        <button class="${NS}-browse-btn" data-action="browse-mode">浏览页面</button>
         <div class="${NS}-editor-actions">
           <button class="${NS}-mode-btn" data-action="edit-mode">进入编辑模式</button>
           <button class="${NS}-style-btn" data-action="style-drawer" disabled>样式</button>
@@ -1069,6 +1157,7 @@
 
     chatPanel.querySelector('[data-action="minimize"]').onclick = toggleMinimize;
     chatPanel.querySelector('[data-action="close"]').onclick = destroy;
+    chatPanel.querySelector('[data-action="browse-mode"]').onclick = togglePaused;
     chatPanel.querySelector('[data-action="edit-mode"]').onclick = toggleEditMode;
     chatPanel.querySelector('[data-action="style-drawer"]').onclick = toggleStyleDrawer;
     chatPanel.querySelector('[data-action="batch-pages"]').onclick = showBatchModal;
@@ -1108,8 +1197,7 @@
     const btn = chatPanel.querySelector('[data-action="edit-mode"]');
     btn.textContent = editMode ? "退出编辑模式" : "进入编辑模式";
     btn.classList.toggle(`${NS}-mode-active`, editMode);
-    const label = chatPanel.querySelector(`.${NS}-status-label`);
-    if (label) label.textContent = editMode ? "直接编辑" : (paused ? "已暂停" : "选取中");
+    refreshInteractionState();
     positionAllOverlays();
   }
 
@@ -1244,6 +1332,13 @@
       const label = (link.textContent || "").replace(/\s+/g, " ").trim();
       pages.push({ url: url.href, label: label || url.pathname || url.href, current: false });
     }
+    for (const preferred of batchPagePreferences) {
+      const url = isBatchPageUrl(preferred.url);
+      if (!url) continue;
+      const existing = pages.find((page) => page.url === url.href);
+      if (existing) existing.checked = preferred.checked !== false;
+      else pages.push({ url: url.href, label: preferred.label || url.pathname, current: false, checked: preferred.checked !== false });
+    }
     return pages;
   }
 
@@ -1283,15 +1378,22 @@
       change.textContent = "请先完成一次文字、样式或属性修改，再批量同步。";
       modal.querySelector('[data-batch-action="preview"]').disabled = true;
     } else {
-      change.textContent = `将同步最近一次修改：${lastBatchPatches.map((patch) => patch.target.label).join("、")}`;
+      const prefix = batchSessionRestored ? "已恢复上一页修改" : "将同步最近一次修改";
+      change.textContent = `${prefix}：${lastBatchPatches.map((patch) => patch.target.label).join("、")}`;
     }
 
     renderBatchPages(modal);
+    const matchAll = modal.querySelector('[data-batch-action="match-all"]');
+    matchAll.checked = batchAllowMany;
     modal.querySelectorAll('[data-batch-action="close"]').forEach((btn) => { btn.onclick = removeBatchModal; });
     modal.querySelector('[data-batch-action="add-url"]').onclick = () => addBatchUrls(modal);
     modal.querySelector('[data-batch-action="preview"]').onclick = () => previewBatchPages(modal);
     modal.querySelector('[data-batch-action="download"]').onclick = () => downloadBatchZip(modal);
-    modal.querySelector('[data-batch-action="match-all"]').onchange = () => clearBatchPreview(modal);
+    matchAll.onchange = () => {
+      batchAllowMany = matchAll.checked;
+      saveBatchPagePreferences(modal);
+      clearBatchPreview(modal);
+    };
     modal.addEventListener("click", (e) => { if (e.target === modal) removeBatchModal(); });
     modal.addEventListener("keydown", (e) => e.stopPropagation());
   }
@@ -1311,10 +1413,14 @@
       row.className = `${NS}-batch-page`;
       const check = document.createElement("input");
       check.type = "checkbox";
-      check.checked = true;
+      check.checked = page.current || page.checked !== false;
       check.disabled = page.current;
       check.dataset.pageIndex = index;
-      check.addEventListener("change", () => clearBatchPreview(modal));
+      check.addEventListener("change", () => {
+        page.checked = check.checked;
+        saveBatchPagePreferences(modal);
+        clearBatchPreview(modal);
+      });
       const content = document.createElement("span");
       const title = document.createElement("strong");
       title.textContent = page.label;
@@ -1336,11 +1442,21 @@
       const url = isBatchPageUrl(value);
       if (!url || existing.has(url.href)) continue;
       existing.add(url.href);
-      modal._pages.push({ url: url.href, label: url.pathname || url.href, current: false });
+      modal._pages.push({ url: url.href, label: url.pathname || url.href, current: false, checked: true });
     }
     input.value = "";
     renderBatchPages(modal);
+    saveBatchPagePreferences(modal);
     clearBatchPreview(modal);
+  }
+
+  function saveBatchPagePreferences(modal) {
+    batchPagePreferences = modal._pages.map((page) => ({
+      url: page.url,
+      label: page.label,
+      checked: page.current || page.checked !== false,
+    }));
+    persistBatchSession();
   }
 
   function clearBatchPreview(modal) {
@@ -2367,10 +2483,7 @@
 
     snapshotStack.push(snapshot);
     if (batchPatches.length) recordBatchPatches(batchPatches);
-    else {
-      lastBatchPatches = [];
-      batchPreviewResults = [];
-    }
+    else clearBatchPatches();
 
     aiBubble.textContent = displayText || "已应用修改。";
 
@@ -2463,8 +2576,7 @@
 
     const idx = snapshotStack.indexOf(snapshot);
     if (idx >= 0) snapshotStack.splice(idx, 1);
-    lastBatchPatches = [];
-    batchPreviewResults = [];
+    clearBatchPatches();
   }
 
   // ── Boot ───────────────────────────────────────────────────

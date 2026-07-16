@@ -442,6 +442,23 @@
   padding: 2px 8px 0;
 }
 
+.ai-editor-browse-btn {
+  display: block;
+  width: calc(100% - 16px);
+  margin: 2px 8px 6px;
+  border: 1px solid #d8d8d8;
+  border-radius: 7px;
+  background: #fff;
+  color: #333;
+  padding: 7px 8px;
+  font-size: 11px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.ai-editor-browse-btn:hover { border-color: #777; background: #f7f7f7; }
+.ai-editor-browse-btn.ai-editor-browse-active { border-color: #2563eb; background: #eff6ff; color: #1d4ed8; }
+
 .ai-editor-mode-btn,
 .ai-editor-style-btn,
 .ai-editor-batch-btn,
