@@ -1369,6 +1369,20 @@
       setSiteExportFeedback("请通过 HTTP 打开");
       return;
     }
+    const baseName = (document.title || "htmlive-site").replace(/[\\/:*?\"<>|]/g, "-").slice(0, 80);
+    const fileName = `${baseName || "htmlive-site"}-all-pages.zip`;
+    let saveHandle = null;
+    if (window.isSecureContext && typeof window.showSaveFilePicker === "function") {
+      try {
+        saveHandle = await window.showSaveFilePicker({
+          suggestedName: fileName,
+          types: [{ description: "ZIP 压缩包", accept: { "application/zip": [".zip"] } }],
+        });
+      } catch (error) {
+        if (error && error.name === "AbortError") return;
+        console.warn("HTMLive could not open the ZIP save picker; falling back to download", error);
+      }
+    }
     const btn = chatPanel.querySelector('[data-action="export-site"]');
     btn.disabled = true;
     setSiteExportFeedback("正在整理…", 0);
@@ -1398,8 +1412,13 @@
         content: result.html,
       }));
       const blob = new Blob([createStoredZip(files)], { type: "application/zip" });
-      const baseName = (document.title || "htmlive-site").replace(/[\\/:*?\"<>|]/g, "-").slice(0, 80);
-      downloadBlob(blob, `${baseName || "htmlive-site"}-all-pages.zip`);
+      if (saveHandle) {
+        const writable = await saveHandle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+      } else {
+        downloadBlob(blob, fileName);
+      }
       const failed = results.length - ready.length;
       setSiteExportFeedback(failed ? `已导出 ${ready.length}/${results.length} 页` : `已导出 ${ready.length} 页`);
     } catch (error) {
