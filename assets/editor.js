@@ -1398,19 +1398,31 @@
           const saved = pageDraftStore.pages[pageKeyForUrl(page.url)];
           const groups = saved && Array.isArray(saved.groups) ? saved.groups : [];
           for (const group of groups) for (const patch of group.patches || []) applyPagePatch(doc, patch);
-          return { page, html: serializeHtmlDocument(doc) };
+          return { page, doc, html: serializeHtmlDocument(doc) };
         } catch (error) {
           return { page, error: error.message || "读取失败" };
         }
       }));
       const ready = results.filter((result) => result.html);
       if (!ready.length) throw new Error("没有可导出的页面");
-      const basePath = commonPageDirectory(ready.map((result) => result.page.url));
+      const initialAssetUrls = [];
+      for (const result of ready) {
+        initialAssetUrls.push(...collectHtmlAssetUrls(result.doc, result.page.url));
+      }
+      const assets = await collectSiteAssets(initialAssetUrls);
+      const basePath = commonPageDirectory([
+        ...ready.map((result) => result.page.url),
+        ...assets.map((asset) => asset.url),
+      ]);
       const usedPaths = new Set();
       const files = ready.map((result) => ({
         name: sitePageZipPath(result.page.url, basePath, usedPaths),
         content: result.html,
       }));
+      for (const asset of assets) {
+        const name = siteAssetZipPath(asset.url, basePath, usedPaths);
+        if (name) files.push({ name, content: asset.content });
+      }
       const blob = new Blob([createStoredZip(files)], { type: "application/zip" });
       if (saveHandle) {
         const writable = await saveHandle.createWritable();
@@ -1420,7 +1432,8 @@
         downloadBlob(blob, fileName);
       }
       const failed = results.length - ready.length;
-      setSiteExportFeedback(failed ? `已导出 ${ready.length}/${results.length} 页` : `已导出 ${ready.length} 页`);
+      const summary = `${ready.length}${failed ? `/${results.length}` : ""} 页 + ${assets.length} 个资源`;
+      setSiteExportFeedback(`已导出 ${summary}`);
     } catch (error) {
       console.error("HTMLive site export failed", error);
       setSiteExportFeedback("导出失败");
@@ -1434,6 +1447,117 @@
       ? `<!DOCTYPE ${doc.doctype.name}${doc.doctype.publicId ? ` PUBLIC \"${doc.doctype.publicId}\"` : ""}${doc.doctype.systemId ? ` \"${doc.doctype.systemId}\"` : ""}>`
       : "<!doctype html>";
     return `${doctype}\n${doc.documentElement.outerHTML}`;
+  }
+
+  function asExportAssetUrl(rawUrl, baseUrl) {
+    if (!rawUrl || /^\s*(?:data|blob|javascript|mailto|tel):/i.test(rawUrl)) return null;
+    try {
+      const url = new URL(rawUrl, baseUrl);
+      if (!/^https?:$/.test(url.protocol) || url.origin !== location.origin) return null;
+      url.hash = "";
+      return url;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function srcsetUrls(value) {
+    const urls = [];
+    let input = (value || "").trim();
+    while (input) {
+      const separator = /^data:/i.test(input) ? input.search(/\s/) : input.search(/[\s,]/);
+      const url = separator < 0 ? input : input.slice(0, separator);
+      if (url) urls.push(url);
+      if (separator < 0) break;
+      const comma = input.indexOf(",", separator);
+      if (comma < 0) break;
+      input = input.slice(comma + 1).trim();
+    }
+    return urls;
+  }
+
+  function cssAssetUrls(css, baseUrl) {
+    const urls = [];
+    const add = (rawUrl) => {
+      const clean = (rawUrl || "").trim().replace(/^(['"])([\s\S]*)\1$/, "$2");
+      const url = asExportAssetUrl(clean, baseUrl);
+      if (url) urls.push(url.href);
+    };
+    for (const match of css.matchAll(/url\(\s*([^)]*?)\s*\)/gi)) add(match[1]);
+    for (const match of css.matchAll(/@import\s+(?!url\()["']([^"']+)["']/gi)) add(match[1]);
+    return urls;
+  }
+
+  function collectHtmlAssetUrls(doc, pageUrl) {
+    const urls = [];
+    const baseHref = doc.querySelector("base[href]")?.getAttribute("href");
+    let resourceBase = pageUrl;
+    try { if (baseHref) resourceBase = new URL(baseHref, pageUrl).href; } catch (_) { /* use page URL */ }
+    const add = (rawUrl) => {
+      const url = asExportAssetUrl(rawUrl, resourceBase);
+      if (url) urls.push(url.href);
+    };
+    const attributes = [
+      ["script[src]", "src"], ["img[src]", "src"], ["source[src]", "src"],
+      ["video[src]", "src"], ["video[poster]", "poster"], ["audio[src]", "src"],
+      ["track[src]", "src"], ["object[data]", "data"], ["embed[src]", "src"],
+      ["input[type=image][src]", "src"],
+    ];
+    for (const [selector, attribute] of attributes) {
+      for (const element of doc.querySelectorAll(selector)) add(element.getAttribute(attribute));
+    }
+    for (const element of doc.querySelectorAll("img[srcset], source[srcset]")) {
+      for (const rawUrl of srcsetUrls(element.getAttribute("srcset"))) add(rawUrl);
+    }
+    for (const link of doc.querySelectorAll("link[href]")) {
+      const rel = new Set((link.getAttribute("rel") || "").toLowerCase().split(/\s+/).filter(Boolean));
+      if (["stylesheet", "icon", "preload", "modulepreload", "manifest", "apple-touch-icon", "mask-icon"].some((name) => rel.has(name))) {
+        add(link.getAttribute("href"));
+      }
+    }
+    for (const style of doc.querySelectorAll("style")) urls.push(...cssAssetUrls(style.textContent || "", resourceBase));
+    for (const element of doc.querySelectorAll("[style]")) urls.push(...cssAssetUrls(element.getAttribute("style") || "", resourceBase));
+    return urls;
+  }
+
+  function isCssAsset(url, contentType) {
+    return /text\/css/i.test(contentType || "") || /\.css$/i.test(new URL(url).pathname);
+  }
+
+  async function collectSiteAssets(initialUrls) {
+    const queued = new Set();
+    const pending = [];
+    const assets = [];
+    const enqueue = (rawUrl) => {
+      const url = asExportAssetUrl(rawUrl, location.href);
+      if (!url || queued.has(url.href)) return;
+      queued.add(url.href);
+      pending.push(url.href);
+    };
+    initialUrls.forEach(enqueue);
+    while (pending.length) {
+      const batch = pending.splice(0, 8);
+      const fetched = await Promise.all(batch.map(async (url) => {
+        try {
+          const response = await fetch(url, { credentials: "same-origin" });
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const contentType = response.headers.get("content-type") || "";
+          const content = new Uint8Array(await response.arrayBuffer());
+          return { url, content, contentType };
+        } catch (error) {
+          console.warn(`HTMLive skipped asset ${url}`, error);
+          return null;
+        }
+      }));
+      for (const asset of fetched.filter(Boolean)) {
+        assets.push(asset);
+        if (isCssAsset(asset.url, asset.contentType)) {
+          const css = new TextDecoder().decode(asset.content);
+          cssAssetUrls(css, asset.url).forEach(enqueue);
+        }
+      }
+    }
+    return assets;
   }
 
   function commonPageDirectory(urls) {
@@ -1460,6 +1584,18 @@
     const original = path;
     let suffix = 2;
     while (usedPaths.has(path)) path = original.replace(/(\.html?)$/i, `-${suffix++}$1`);
+    usedPaths.add(path);
+    return path;
+  }
+
+  function siteAssetZipPath(rawUrl, basePath, usedPaths) {
+    const url = new URL(rawUrl);
+    let decodedPath;
+    try { decodedPath = decodeURIComponent(url.pathname); } catch (_) { decodedPath = url.pathname; }
+    let path = decodedPath.slice(basePath.length).replace(/^\/+/, "");
+    if (!path || path.endsWith("/")) return null;
+    path = path.split("/").map((part) => part.replace(/[\\/:*?\"<>|]/g, "-")).join("/");
+    if (!path || usedPaths.has(path)) return null;
     usedPaths.add(path);
     return path;
   }
@@ -1503,7 +1639,7 @@
     let offset = 0;
     for (const file of files) {
       const name = encoder.encode(file.name);
-      const content = encoder.encode(file.content);
+      const content = file.content instanceof Uint8Array ? file.content : encoder.encode(file.content);
       const checksum = crc32(content);
       const local = new Uint8Array(30 + name.length + content.length);
       const localView = new DataView(local.buffer);
