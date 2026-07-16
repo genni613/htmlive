@@ -1,0 +1,40 @@
+:root {
+  color: #1c2634;
+  background: #f7f8fa;
+  font-family: Inter, "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; }
+a { color: inherit; text-decoration: none; }
+
+.site-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  max-width: 920px;
+  margin: auto;
+  padding: 22px 28px;
+}
+.brand { color: #5b3df5; font-size: 20px; font-weight: 800; }
+.site-nav { display: flex; gap: 20px; font-size: 14px; }
+.site-nav a:hover, .site-nav .active { color: #5b3df5; }
+main { max-width: 920px; margin: 0 auto; padding: 42px 28px 72px; }
+.eyebrow { color: #5b3df5; font-size: 13px; font-weight: 700; letter-spacing: .08em; }
+h1 { max-width: 680px; margin: 12px 0; font-size: clamp(38px, 7vw, 68px); letter-spacing: -.05em; line-height: 1.05; }
+.lead { max-width: 560px; color: #687387; font-size: 18px; line-height: 1.7; }
+.button { display: inline-block; margin-top: 18px; padding: 12px 18px; border-radius: 10px; background: #5b3df5; color: #fff; font-size: 14px; font-weight: 700; }
+.cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 48px; }
+.card { padding: 22px; border: 1px solid #e5e7ee; border-radius: 14px; background: #fff; }
+.card h2 { margin: 0 0 8px; font-size: 18px; }
+.card p { margin: 0; color: #687387; font-size: 14px; line-height: 1.6; }
+.price { display: block; margin-top: 18px; color: #5b3df5; font-weight: 800; }
+.page-title { margin-bottom: 34px; font-size: 44px; }
+.product-list { display: grid; gap: 12px; }
+.product-row { display: flex; align-items: center; justify-content: space-between; padding: 20px 22px; border: 1px solid #e5e7ee; border-radius: 12px; background: #fff; }
+.product-row p { margin: 5px 0 0; color: #687387; font-size: 14px; }
+.product-detail { max-width: 650px; padding: 34px; border: 1px solid #e5e7ee; border-radius: 16px; background: #fff; }
+.product-detail h1 { font-size: 48px; }
+.product-detail p { color: #687387; line-height: 1.8; }
+.site-footer { max-width: 920px; margin: auto; padding: 24px 28px; border-top: 1px solid #e5e7ee; color: #8992a3; font-size: 13px; }
+@media (max-width: 640px) { .cards { grid-template-columns: 1fr; } .site-header { padding-inline: 20px; } main { padding-inline: 20px; } }
