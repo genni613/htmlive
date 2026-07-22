@@ -1207,7 +1207,13 @@
         for (const [name, value] of Object.entries(identity.attributes || {})) {
           if (node.getAttribute(name) !== value) return false;
         }
-        return !identity.text || normalize(node.textContent || node.getAttribute("aria-label")) === identity.text;
+        if (!identity.text) return true;
+        const text = identity.textSource === "aria-label"
+          ? node.getAttribute("aria-label")
+          : identity.textSource
+            ? node.querySelector(identity.textSource)?.textContent
+            : node.textContent;
+        return normalize(text) === identity.text;
       };
       const resolveUniqueChild = (parent, segment) => {
         const matches = matchingChildren(parent, segment.tag)
@@ -2037,19 +2043,22 @@
       return { tag: el.tagName.toLowerCase(), attributes, text: "" };
     }
     const heading = el.querySelector("h1, h2, h3, h4, h5, h6");
-    const text = normalizeExportText(
-      heading ? heading.textContent : (el.getAttribute("aria-label") || el.textContent)
-    );
+    const textSource = heading
+      ? heading.tagName.toLowerCase()
+      : el.hasAttribute("aria-label") ? "aria-label" : "";
+    const identityText = (candidate) => {
+      if (textSource === "aria-label") return candidate.getAttribute("aria-label");
+      if (textSource) return candidate.querySelector(textSource)?.textContent;
+      return candidate.textContent;
+    };
+    const text = normalizeExportText(identityText(el));
     if (!text) return null;
     const matchingText = siblings.filter((candidate) => {
       if (!attributeMatches(candidate)) return false;
-      const candidateHeading = candidate.querySelector("h1, h2, h3, h4, h5, h6");
-      return normalizeExportText(
-        candidateHeading ? candidateHeading.textContent : (candidate.getAttribute("aria-label") || candidate.textContent)
-      ) === text;
+      return normalizeExportText(identityText(candidate)) === text;
     });
     if (matchingText.length !== 1) return null;
-    return { tag: el.tagName.toLowerCase(), attributes, text };
+    return { tag: el.tagName.toLowerCase(), attributes, text, textSource };
   }
 
   function normalizeExportText(text) {
