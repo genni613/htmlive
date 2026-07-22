@@ -9,6 +9,7 @@
 
   const NS = "ai-editor";
   const AI_ID = "data-ai-id";
+  const EXPORT_REMOVALS_KEY = "__htmliveExportRemovalSelectors";
 
   let selectedElements = [];
   let chatPanel = null;
@@ -40,6 +41,9 @@
   let styleDrawerOpen = false;
   const domHistory = [];
   const domRedoStack = [];
+  const exportedRemovalSelectors = new Set(
+    Array.isArray(window[EXPORT_REMOVALS_KEY]) ? window[EXPORT_REMOVALS_KEY] : []
+  );
 
 
   function on(target, type, fn, capture) {
@@ -763,6 +767,16 @@
     domRedoStack.length = 0;
   }
 
+  function updateExportRemovalSelectors(entries, present) {
+    for (const entry of entries) {
+      const selector = entry.exportSelector || entry.selector;
+      if (!selector) continue;
+      if (present) exportedRemovalSelectors.add(selector);
+      else exportedRemovalSelectors.delete(selector);
+    }
+    window[EXPORT_REMOVALS_KEY] = Array.from(exportedRemovalSelectors);
+  }
+
   function deletableSelections() {
     return selectedElements
       .filter((el) => el && el.isConnected && el !== document.body && el !== document.documentElement)
@@ -781,12 +795,14 @@
 
     const entries = targets.map((el) => ({
       ...createElementSnapshot(el, "remove"),
+      exportSelector: buildExportRemovalSelector(el),
       node: el,
     }));
     clearSelection();
     for (const el of targets) el.remove();
 
     recordDomChange({ type: "remove", entries });
+    updateExportRemovalSelectors(entries, true);
     updateTags();
     showHover(null);
   }
@@ -849,6 +865,7 @@
     if (change.type === "remove") {
       const restoredElements = restoreRemovedElements(change.entries);
       restored = restoredElements.length > 0;
+      if (restored) updateExportRemovalSelectors(change.entries, false);
       clearSelection();
       for (const el of restoredElements) addSelection(el);
       updateTags();
@@ -866,6 +883,7 @@
     if (change.type === "remove") {
       if (!reapplyRemoval(change.entries)) return false;
       domHistory.push(change);
+      updateExportRemovalSelectors(change.entries, true);
     } else if (restoreSnapshot(change.after)) {
       domHistory.push(change);
     }
@@ -1166,7 +1184,28 @@
       node.removeAttribute('contenteditable');
     });
     clone.classList.remove(`${NS}-edit-mode`);
+    appendExportRemovalScript(clone);
     return "<!doctype html>\n" + clone.outerHTML;
+  }
+
+  function appendExportRemovalScript(clone) {
+    if (!exportedRemovalSelectors.size) return;
+    const body = clone.querySelector("body");
+    if (!body) return;
+    const selectors = JSON.stringify(Array.from(exportedRemovalSelectors)).replace(/</g, "\\u003c");
+    const script = document.createElement("script");
+    script.setAttribute("data-htmlive-export-removals", "");
+    script.textContent = `(() => {
+      const selectors = ${selectors};
+      const removeMatches = () => {
+        for (const selector of selectors) {
+          try { document.querySelectorAll(selector).forEach((node) => node.remove()); } catch (_) {}
+        }
+      };
+      removeMatches();
+      new MutationObserver(removeMatches).observe(document.documentElement, { childList: true, subtree: true });
+    })();`;
+    body.appendChild(script);
   }
 
   function downloadExportHtml(html, fileName) {
@@ -1916,6 +1955,26 @@
       nextSiblingAiId: next ? next.getAttribute(AI_ID) : null,
       action,
     };
+  }
+
+  function buildExportRemovalSelector(el) {
+    const parts = [];
+    let node = el;
+    while (node && node !== document.body && node !== document.documentElement) {
+      let segment = node.tagName.toLowerCase();
+      const parent = node.parentElement;
+      if (parent) {
+        const siblings = Array.from(parent.children).filter((child) => child.tagName === node.tagName);
+        if (siblings.length > 1) segment += `:nth-of-type(${siblings.indexOf(node) + 1})`;
+      }
+      parts.unshift(segment);
+      if (node !== el && node.id) {
+        parts[0] = `#${node.id}`;
+        break;
+      }
+      node = parent;
+    }
+    return parts.join(" > ");
   }
 
   function applyModifications(mods, aiBubble, displayText) {
