@@ -444,6 +444,7 @@
 
 .ai-editor-mode-btn,
 .ai-editor-style-btn,
+.ai-editor-delete-btn,
 .ai-editor-export-btn {
   flex: 1;
   border: 1px solid #d8d8d8;
@@ -458,10 +459,14 @@
 
 .ai-editor-mode-btn:hover,
 .ai-editor-style-btn:hover,
+.ai-editor-delete-btn:hover,
 .ai-editor-export-btn:hover { border-color: #777; background: #f7f7f7; }
 .ai-editor-mode-btn.ai-editor-mode-active { background: #111; border-color: #111; color: #fff; }
 .ai-editor-style-btn.ai-editor-style-active { background: #111; border-color: #111; color: #fff; }
-.ai-editor-style-btn:disabled { color: #bbb; background: #f6f6f6; border-color: #eee; cursor: default; }
+.ai-editor-delete-btn { color: #b42318; }
+.ai-editor-delete-btn:hover:not(:disabled) { border-color: #b42318; background: #fff5f4; }
+.ai-editor-style-btn:disabled,
+.ai-editor-delete-btn:disabled { color: #bbb; background: #f6f6f6; border-color: #eee; cursor: default; }
 
 .ai-editor-style-drawer {
   margin: 8px;

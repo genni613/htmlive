@@ -554,6 +554,11 @@
       redoDomChange();
       return;
     }
+    if ((e.key === "Delete" || e.key === "Backspace") && !mod && selectedElements.length > 0) {
+      e.preventDefault();
+      deleteSelectedElements();
+      return;
+    }
     if (e.key === "ArrowUp" && selectedElements.length === 1) {
       e.preventDefault();
       navigateToParent();
@@ -751,6 +756,32 @@
     domRedoStack.length = 0;
   }
 
+  function deletableSelections() {
+    return selectedElements
+      .filter((el) => el && el.isConnected && el !== document.body && el !== document.documentElement)
+      .filter((el, _index, elements) => !elements.some((other) => other !== el && other.contains(el)))
+      .sort((a, b) => {
+        const position = a.compareDocumentPosition(b);
+        return position & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1;
+      });
+  }
+
+  function deleteSelectedElements() {
+    if (textEditState) finishTextEdit();
+    const targets = deletableSelections();
+    if (!targets.length) return;
+
+    const entries = targets.map((el) => createElementSnapshot(el, "remove"));
+    clearSelection();
+    for (const el of targets) el.remove();
+
+    domHistory.push({ type: "remove", entries });
+    if (domHistory.length > 100) domHistory.shift();
+    domRedoStack.length = 0;
+    updateTags();
+    showHover(null);
+  }
+
   function restoreSnapshot(snapshot) {
     const current = snapshot.aiId ? byAiId(snapshot.aiId) : document.querySelector(snapshot.selector);
     if (!current) return false;
@@ -764,10 +795,55 @@
     return true;
   }
 
+  function restoreRemovedElements(entries) {
+    const restoredByAiId = new Map();
+    for (let i = entries.length - 1; i >= 0; i--) {
+      const entry = entries[i];
+      const parent = entry.parentAiId ? byAiId(entry.parentAiId)
+        : entry.parentSelector ? document.querySelector(entry.parentSelector)
+        : null;
+      if (!parent) continue;
+      const holder = document.createElement("template");
+      holder.innerHTML = entry.outerHTML;
+      const restored = holder.content.firstElementChild;
+      if (!restored) continue;
+      const next = entry.nextSiblingAiId ? byAiId(entry.nextSiblingAiId) : null;
+      if (next && next.parentElement === parent) parent.insertBefore(restored, next);
+      else parent.appendChild(restored);
+      if (entry.aiId) restoredByAiId.set(entry.aiId, restored);
+    }
+    assignAiIds(document.body);
+    return entries.map((entry) => restoredByAiId.get(entry.aiId)).filter(Boolean);
+  }
+
+  function reapplyRemoval(entries) {
+    let removed = false;
+    clearSelection();
+    for (const entry of entries) {
+      const el = entry.aiId ? byAiId(entry.aiId) : document.querySelector(entry.selector);
+      if (!el) continue;
+      el.remove();
+      removed = true;
+    }
+    updateTags();
+    showHover(null);
+    return removed;
+  }
+
   function undoDomChange() {
     const change = domHistory.pop();
     if (!change) return false;
-    if (restoreSnapshot(change.before)) domRedoStack.push(change);
+    let restored = false;
+    if (change.type === "remove") {
+      const restoredElements = restoreRemovedElements(change.entries);
+      restored = restoredElements.length > 0;
+      clearSelection();
+      for (const el of restoredElements) addSelection(el);
+      updateTags();
+    } else {
+      restored = restoreSnapshot(change.before);
+    }
+    if (restored) domRedoStack.push(change);
     positionAllOverlays();
     return true;
   }
@@ -775,7 +851,12 @@
   function redoDomChange() {
     const change = domRedoStack.pop();
     if (!change) return false;
-    if (restoreSnapshot(change.after)) domHistory.push(change);
+    if (change.type === "remove") {
+      if (!reapplyRemoval(change.entries)) return false;
+      domHistory.push(change);
+    } else if (restoreSnapshot(change.after)) {
+      domHistory.push(change);
+    }
     positionAllOverlays();
     return true;
   }
@@ -891,11 +972,13 @@
           <span><kbd>Space</kbd> 暂停</span>
           <span><kbd>\u2318C</kbd> 复制</span>
           <span><kbd>\u2318Z</kbd> 撤销</span>
+          <span><kbd>Del</kbd> 删除</span>
           <span><kbd>Esc</kbd> 清除</span>
         </div>
         <div class="${NS}-editor-actions">
           <button class="${NS}-mode-btn" data-action="edit-mode">进入编辑模式</button>
           <button class="${NS}-style-btn" data-action="style-drawer" disabled>样式</button>
+          <button class="${NS}-delete-btn" data-action="delete-selected" title="删除选中元素（Delete / Backspace）" disabled>删除</button>
           <button class="${NS}-export-btn" data-action="export-html">导出 HTML</button>
         </div>
         <div class="${NS}-style-drawer" hidden>
@@ -941,6 +1024,7 @@
     chatPanel.querySelector('[data-action="close"]').onclick = destroy;
     chatPanel.querySelector('[data-action="edit-mode"]').onclick = toggleEditMode;
     chatPanel.querySelector('[data-action="style-drawer"]').onclick = toggleStyleDrawer;
+    chatPanel.querySelector('[data-action="delete-selected"]').onclick = deleteSelectedElements;
     chatPanel.querySelector('[data-action="export-html"]').onclick = exportCurrentHtml;
 
     chatPanel.querySelectorAll(`[data-style-prop]`).forEach((input) => {
@@ -1187,7 +1271,9 @@
       copyBtn.disabled = true;
     }
     const styleBtn = chatPanel.querySelector('[data-action="style-drawer"]');
+    const deleteBtn = chatPanel.querySelector('[data-action="delete-selected"]');
     if (styleBtn) styleBtn.disabled = selectedElements.length !== 1;
+    if (deleteBtn) deleteBtn.disabled = selectedElements.length === 0;
     if (selectedElements.length !== 1 && styleDrawerOpen) {
       styleDrawerOpen = false;
       chatPanel.querySelector(`.${NS}-style-drawer`).hidden = true;
