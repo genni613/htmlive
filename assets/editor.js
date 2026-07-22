@@ -611,7 +611,9 @@
     el.contentEditable = "false";
     el.removeAttribute("data-ai-editor-text-editing");
     textEditState = null;
-    if (record && el.outerHTML !== before.outerHTML) pushDomChange(before, createElementSnapshot(el, "manual-text"));
+    if (record && el.outerHTML !== before.outerHTML) {
+      recordDomChange({ before, after: createElementSnapshot(el, "manual-text") });
+    }
     positionAllOverlays();
   }
 
@@ -673,7 +675,12 @@
       clearLayoutDropTarget(d);
     }
     const afterTarget = d.historyTarget || d.el;
-    if (afterTarget.outerHTML !== d.before.outerHTML) pushDomChange(d.before, createElementSnapshot(afterTarget, `manual-${d.layout || "normal"}-${d.kind}`));
+    if (afterTarget.outerHTML !== d.before.outerHTML) {
+      recordDomChange({
+        before: d.before,
+        after: createElementSnapshot(afterTarget, `manual-${d.layout || "normal"}-${d.kind}`),
+      });
+    }
   }
 
   function getLayoutMode(parent) {
@@ -750,8 +757,8 @@
     state.parent.insertBefore(state.el, state.drop.before ? target : target.nextSibling);
   }
 
-  function pushDomChange(before, after) {
-    domHistory.push({ before, after });
+  function recordDomChange(change) {
+    domHistory.push(change);
     if (domHistory.length > 100) domHistory.shift();
     domRedoStack.length = 0;
   }
@@ -771,13 +778,14 @@
     const targets = deletableSelections();
     if (!targets.length) return;
 
-    const entries = targets.map((el) => createElementSnapshot(el, "remove"));
+    const entries = targets.map((el) => ({
+      ...createElementSnapshot(el, "remove"),
+      node: el,
+    }));
     clearSelection();
     for (const el of targets) el.remove();
 
-    domHistory.push({ type: "remove", entries });
-    if (domHistory.length > 100) domHistory.shift();
-    domRedoStack.length = 0;
+    recordDomChange({ type: "remove", entries });
     updateTags();
     showHover(null);
   }
@@ -803,9 +811,12 @@
         : entry.parentSelector ? document.querySelector(entry.parentSelector)
         : null;
       if (!parent) continue;
-      const holder = document.createElement("template");
-      holder.innerHTML = entry.outerHTML;
-      const restored = holder.content.firstElementChild;
+      let restored = entry.node && !entry.node.isConnected ? entry.node : null;
+      if (!restored) {
+        const holder = document.createElement("template");
+        holder.innerHTML = entry.outerHTML;
+        restored = holder.content.firstElementChild;
+      }
       if (!restored) continue;
       const next = entry.nextSiblingAiId ? byAiId(entry.nextSiblingAiId) : null;
       if (next && next.parentElement === parent) parent.insertBefore(restored, next);
@@ -1108,7 +1119,9 @@
     const before = createElementSnapshot(el, "manual-style");
     if (prop === "font-family" && !value) el.style.removeProperty(prop);
     else el.style.setProperty(prop, value);
-    if (el.outerHTML !== before.outerHTML) pushDomChange(before, createElementSnapshot(el, "manual-style"));
+    if (el.outerHTML !== before.outerHTML) {
+      recordDomChange({ before, after: createElementSnapshot(el, "manual-style") });
+    }
     refreshStyleDrawer();
   }
 
