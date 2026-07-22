@@ -1200,32 +1200,36 @@
     script.setAttribute("data-htmlive-export-removals", "");
     script.textContent = `(() => {
       const rules = ${rules};
-      const normalize = (text) => (text || "").replace(/\\s+/g, " ").trim();
+      const normalize = (text) => (text || "").replace(/\\s+/g, " ").trim().slice(0, 160);
       const matchingChildren = (parent, tagName) => Array.from(parent.children)
         .filter((child) => child.tagName.toLowerCase() === tagName);
+      const matchesIdentity = (node, identity) => {
+        for (const [name, value] of Object.entries(identity.attributes || {})) {
+          if (node.getAttribute(name) !== value) return false;
+        }
+        return !identity.text || normalize(node.textContent || node.getAttribute("aria-label")) === identity.text;
+      };
+      const resolveUniqueChild = (parent, segment) => {
+        const matches = matchingChildren(parent, segment.tag)
+          .filter((child) => matchesIdentity(child, segment));
+        return matches.length === 1 ? matches[0] : null;
+      };
       const resolveParent = (root, rule) => {
         let parent = root;
         for (const segment of rule.parentPath || []) {
-          parent = matchingChildren(parent, segment.tag)[segment.index];
+          parent = resolveUniqueChild(parent, segment);
           if (!parent) return null;
         }
         return parent;
-      };
-      const matches = (node, rule) => {
-        for (const [name, value] of Object.entries(rule.attributes || {})) {
-          if (node.getAttribute(name) !== value) return false;
-        }
-        return !rule.text || normalize(node.textContent || node.getAttribute("aria-label")) === rule.text;
       };
       const removeMatches = () => {
         const targets = new Set();
         for (const rule of rules) {
           try {
-            document.querySelectorAll(rule.rootSelector).forEach((root) => {
-              const parent = resolveParent(root, rule);
-              const node = parent && matchingChildren(parent, rule.tag)[rule.siblingIndex];
-              if (node && matches(node, rule)) targets.add(node);
-            });
+            const root = document.querySelector(rule.rootSelector);
+            const parent = root && resolveParent(root, rule);
+            const node = parent && resolveUniqueChild(parent, rule);
+            if (node) targets.add(node);
           } catch (_) {}
         }
         targets.forEach((node) => node.remove());
@@ -2005,39 +2009,47 @@
     const parentPath = [];
     let pathNode = parent;
     while (pathNode && pathNode !== pathRoot) {
-      const siblings = Array.from(pathNode.parentElement.children)
-        .filter((sibling) => sibling.tagName === pathNode.tagName);
-      parentPath.unshift({
-        tag: pathNode.tagName.toLowerCase(),
-        index: siblings.indexOf(pathNode),
-      });
+      const identity = buildExportRemovalIdentity(pathNode);
+      if (!identity) return null;
+      parentPath.unshift(identity);
       pathNode = pathNode.parentElement;
     }
     if (pathNode !== pathRoot) return null;
-    const siblings = Array.from(parent.children)
+    const identity = buildExportRemovalIdentity(el);
+    if (!identity) return null;
+    return { rootSelector, parentPath, ...identity };
+  }
+
+  function buildExportRemovalIdentity(el) {
+    const siblings = Array.from(el.parentElement.children)
       .filter((sibling) => sibling.tagName === el.tagName);
     const attributes = {};
-    let hasStableAttribute = false;
     for (const attribute of Array.from(el.attributes)) {
       if ((attribute.name.startsWith("data-") && attribute.name !== AI_ID) || attribute.name === "aria-label") {
         attributes[attribute.name] = attribute.value;
-        if (["data-day", "data-add", "aria-label"].includes(attribute.name)) {
-          hasStableAttribute = true;
-        }
       }
+    }
+    const attributeEntries = Object.entries(attributes);
+    const attributeMatches = (candidate) => attributeEntries.every(
+      ([name, value]) => candidate.getAttribute(name) === value
+    );
+    if (attributeEntries.length && siblings.filter(attributeMatches).length === 1) {
+      return { tag: el.tagName.toLowerCase(), attributes, text: "" };
     }
     const heading = el.querySelector("h1, h2, h3, h4, h5, h6");
     const text = normalizeExportText(
       heading ? heading.textContent : (el.getAttribute("aria-label") || el.textContent)
     );
-    return {
-      rootSelector,
-      parentPath,
-      tag: el.tagName.toLowerCase(),
-      siblingIndex: siblings.indexOf(el),
-      attributes,
-      text: hasStableAttribute ? "" : text,
-    };
+    if (!text) return null;
+    const matchingText = siblings.filter((candidate) => {
+      if (!attributeMatches(candidate)) return false;
+      const candidateHeading = candidate.querySelector("h1, h2, h3, h4, h5, h6");
+      return normalizeExportText(
+        candidateHeading ? candidateHeading.textContent : (candidate.getAttribute("aria-label") || candidate.textContent)
+      ) === text;
+    });
+    if (matchingText.length !== 1) return null;
+    return { tag: el.tagName.toLowerCase(), attributes, text };
   }
 
   function normalizeExportText(text) {
