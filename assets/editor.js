@@ -544,17 +544,17 @@
       copyPrompt();
       return;
     }
-    if (mod && e.key.toLowerCase() === "z" && !e.shiftKey) {
+    if (editMode && mod && e.key.toLowerCase() === "z" && !e.shiftKey) {
       e.preventDefault();
       if (!undoDomChange()) undo();
       return;
     }
-    if (mod && e.key.toLowerCase() === "z" && e.shiftKey) {
+    if (editMode && mod && e.key.toLowerCase() === "z" && e.shiftKey) {
       e.preventDefault();
       redoDomChange();
       return;
     }
-    if ((e.key === "Delete" || e.key === "Backspace") && !mod && selectedElements.length > 0) {
+    if (editMode && (e.key === "Delete" || e.key === "Backspace") && !mod && selectedElements.length > 0) {
       e.preventDefault();
       deleteSelectedElements();
       return;
@@ -774,6 +774,7 @@
   }
 
   function deleteSelectedElements() {
+    if (!editMode) return;
     if (textEditState) finishTextEdit();
     const targets = deletableSelections();
     if (!targets.length) return;
@@ -1074,6 +1075,7 @@
     btn.classList.toggle(`${NS}-mode-active`, editMode);
     const label = chatPanel.querySelector(`.${NS}-status-label`);
     if (label) label.textContent = editMode ? "直接编辑" : (paused ? "已暂停" : "选取中");
+    updateTags();
     positionAllOverlays();
   }
 
@@ -1286,7 +1288,7 @@
     const styleBtn = chatPanel.querySelector('[data-action="style-drawer"]');
     const deleteBtn = chatPanel.querySelector('[data-action="delete-selected"]');
     if (styleBtn) styleBtn.disabled = selectedElements.length !== 1;
-    if (deleteBtn) deleteBtn.disabled = selectedElements.length === 0;
+    if (deleteBtn) deleteBtn.disabled = !editMode || selectedElements.length === 0;
     if (selectedElements.length !== 1 && styleDrawerOpen) {
       styleDrawerOpen = false;
       chatPanel.querySelector(`.${NS}-style-drawer`).hidden = true;
