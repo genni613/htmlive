@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>HTMLive 本地站点导出</title>
+    <style>
+      :root { color-scheme: light; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #171717; background: #f6f6f4; }
+      body { margin: 0; min-width: 360px; }
+      main { padding: 26px; }
+      h1 { margin: 0 0 10px; font-size: 19px; }
+      p { margin: 0; color: #666; font-size: 13px; line-height: 1.65; }
+      button { width: 100%; margin-top: 22px; padding: 12px 14px; border: 0; border-radius: 8px; background: #111; color: #fff; font-weight: 700; font-size: 14px; cursor: pointer; }
+      button:disabled { opacity: .55; cursor: wait; }
+      #status { min-height: 20px; margin-top: 14px; color: #666; font-size: 12px; text-align: center; }
+      #status.error { color: #b42318; }
+      .note { margin-top: 16px; padding-top: 14px; border-top: 1px solid #ddd; color: #888; font-size: 11px; line-height: 1.55; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>导出本地站点</h1>
+      <p>选择包含 HTML、CSS、JS 和图片的站点根目录。HTMLive 会保留文件夹结构，并将当前会话已保存的页面修改写入 ZIP。</p>
+      <button id="export" type="button">选择网站文件夹并导出 ZIP</button>
+      <div id="status" role="status"></div>
+      <div class="note">文件只在本机读取并写入下载的 ZIP，不会上传到网络。</div>
+    </main>
+    <script src="local-export.js"></script>
+  </body>
+</html>

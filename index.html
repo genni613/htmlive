@@ -106,10 +106,13 @@
     .install { padding:124px 0 104px; text-align:center; background:var(--paper); color:#111; }
     .install .eyebrow { justify-content:center; color:#435a00; } .install h2 { max-width:820px; margin:18px auto; font-size:clamp(42px,5.4vw,74px); line-height:1.04; letter-spacing:-.08em; }
     .install p { max-width:530px; margin:0 auto 30px; color:#555; line-height:1.75; font-size:15px; }
-    .bookmark-wrap { display:inline-flex; flex-direction:column; gap:11px; align-items:center; }
+    .install-options { display:flex; align-items:flex-start; justify-content:center; gap:16px; flex-wrap:wrap; }
+    .bookmark-wrap, .extension-wrap { display:inline-flex; flex-direction:column; gap:11px; align-items:center; }
     .bookmark { display:inline-flex; padding:17px 25px; align-items:center; gap:10px; background:#111; color:var(--acid); text-decoration:none; font:500 17px "DM Mono",monospace; border-radius:3px; cursor:grab; box-shadow:8px 8px 0 var(--orange); transition:transform .18s ease; }
     .bookmark:active { cursor:grabbing; } .bookmark:hover { transform:translate(-2px,-2px); }
     .bookmark.loading { opacity:.45; cursor:wait; } .install-tip { color:#777; font:11px "DM Mono",monospace; }
+    .extension-card { max-width:255px; min-height:55px; padding:11px 14px; border:1px solid #111; color:#111; background:#fff; text-align:left; font:11px/1.45 "DM Mono",monospace; }
+    .extension-card strong { display:block; margin-bottom:3px; font-size:12px; } .extension-card code { padding:1px 3px; background:#eee; }
     .install-error { display:none; margin-top:13px; color:#b32f13; font-size:12px; }
     footer { padding:28px 0 42px; display:flex; justify-content:space-between; gap:20px; color:rgba(244,242,233,.45); font:11px "DM Mono",monospace; } footer a { color:var(--acid); text-decoration:none; }
     @media (max-width:850px) { .hero { grid-template-columns:1fr; min-height:0; padding:72px 0; } .editor-demo { justify-self:center; } .strip-list { justify-content:flex-start; overflow-x:auto; scrollbar-width:none; } .strip-list::-webkit-scrollbar { display:none; } .section { padding:78px 0; } .section-head { grid-template-columns:1fr; gap:16px; margin-bottom:38px; } .pain-grid { grid-template-columns:1fr; } .pain { min-height:210px; border-right:0; border-bottom:1px solid var(--line); } .pain h3 { margin-top:34px; } .flow { grid-template-columns:1fr; gap:0; } .flow-arrow { height:42px; transform:rotate(90deg); } }
@@ -159,7 +162,7 @@
         <div class="flow"><article class="flow-card"><b>01 / OPEN</b><h3>打开收到的 HTML</h3><p>无论来自 AI、同事、客户，还是你自己的电脑。</p></article><div class="flow-arrow">→</div><article class="flow-card"><b>02 / EDIT</b><h3>点选、修改、微调</h3><p>文字、颜色、字号、组件位置，一眼看到，一手改掉。</p></article><div class="flow-arrow">→</div><article class="flow-card"><b>03 / EXPORT</b><h3>带着动效导出</h3><p>导出新的独立 HTML，交付、演示或继续迭代。</p></article></div>
       </section>
     </div>
-    <section class="install" id="install"><div class="shell"><div class="eyebrow">INSTALL IN 5 SECONDS</div><h2>把 HTMLive 拖到书签栏。</h2><p>然后打开任意 HTML，点击书签。你会第一次感觉网页可以像 PPT 一样被直接编辑。</p><div class="bookmark-wrap"><a class="bookmark loading" id="bm-link" href="#">✦ HTMLive</a><span class="install-tip">拖拽这个按钮到浏览器书签栏</span></div><div class="install-error" id="bm-err">加载失败，请刷新页面后重试。</div></div></section>
+    <section class="install" id="install"><div class="shell"><div class="eyebrow">INSTALL</div><h2>单页用书签，<br>多页用扩展。</h2><p>两种入口使用完全相同的编辑器。书签适合一次性修改；Chrome 扩展会在页面跳转后自动重新加载编辑器。</p><div class="install-options"><div class="bookmark-wrap"><a class="bookmark loading" id="bm-link" href="#">✦ HTMLive</a><span class="install-tip">拖拽到浏览器书签栏</span></div><div class="extension-wrap"><div class="extension-card"><strong>Chrome Extension</strong>打开 <code>chrome://extensions</code>，启用开发者模式后选择“加载已解压的扩展程序”，并选择本项目目录。设为“在所有网站上”可自动加载；设为“点击时”则点击图标打开。</div><span class="install-tip">编辑本地 HTML 时，开启“允许访问文件网址”</span></div></div><div class="install-error" id="bm-err">加载失败，请刷新页面后重试。</div></div></section>
   </main>
   <div class="shell"><footer><span>© 2026 HTMLive — Edit HTML directly, instantly.</span><a href="https://github.com/genni613/htmlive" target="_blank" rel="noreferrer">GitHub ↗</a></footer></div>
 </body>

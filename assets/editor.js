@@ -1,6 +1,6 @@
 /**
  * HTMLive — visual, in-page HTML editor.
- * Inject via bookmarklet. Click = select, Shift+click = multi, Drag = marquee.
+ * Shared by the bookmarklet and Chrome extension. Click = select, Shift+click = multi, Drag = marquee.
  */
 (function () {
   "use strict";
@@ -1173,7 +1173,7 @@
           <button class="${NS}-mode-btn" data-action="edit-mode">进入编辑模式</button>
           <button class="${NS}-style-btn" data-action="style-drawer" disabled>样式</button>
           <button class="${NS}-export-btn" data-action="export-html">导出当前页</button>
-          <button class="${NS}-site-export-btn" data-action="export-site">导出全部页面</button>
+          <button class="${NS}-site-export-btn" data-action="export-site">${siteExportDefaultLabel()}</button>
         </div>
         <div class="${NS}-style-drawer" hidden>
           <div class="${NS}-drawer-title">选中组件样式</div>
@@ -1323,7 +1323,7 @@
         setExportFeedback("已保存");
         return;
       }
-      downloadExportHtml(html, fileName);
+      await downloadExportHtml(html, fileName);
       setExportFeedback("已下载");
     } catch (err) {
       if (err && err.name === "AbortError") return;
@@ -1348,21 +1348,17 @@
     return "<!doctype html>\n" + clone.outerHTML;
   }
 
-  function downloadExportHtml(html, fileName) {
+  async function downloadExportHtml(html, fileName) {
     const blob = new Blob([html], { type: "text/html;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = fileName;
-    a.style.display = "none";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    await downloadBlob(blob, fileName);
   }
 
   async function exportSiteHtml() {
     if (textEditState) finishTextEdit();
+    if (location.protocol === "file:") {
+      await exportLocalSiteHtml();
+      return;
+    }
     registerDiscoveredPages();
     const pages = (pageDraftStore.sitePages || []).filter((page) => asSitePageUrl(page.url));
     if (!pages.length) {
@@ -1429,7 +1425,7 @@
         await writable.write(blob);
         await writable.close();
       } else {
-        downloadBlob(blob, fileName);
+        await downloadBlob(blob, fileName);
       }
       const failed = results.length - ready.length;
       const summary = `${ready.length}${failed ? `/${results.length}` : ""} 页 + ${assets.length} 个资源`;
@@ -1439,6 +1435,28 @@
       setSiteExportFeedback("导出失败");
     } finally {
       btn.disabled = false;
+    }
+  }
+
+  // Local files are exported from an extension page rather than a file:// content
+  // script. That keeps directory access and the save dialog in a trusted extension
+  // context instead of treating a selected folder as a page upload.
+  async function exportLocalSiteHtml() {
+    try {
+      if (typeof chrome === "undefined" || !chrome.runtime || !chrome.runtime.id) {
+        setSiteExportFeedback("请使用 Chrome 扩展导出本地站点", 2800);
+        return;
+      }
+      const result = await chrome.runtime.sendMessage({
+        type: "htmlive-open-local-export",
+        pageDraftStore,
+      });
+      if (!result || !result.ok) throw new Error((result && result.error) || "无法打开导出窗口");
+      setSiteExportFeedback("已打开导出窗口", 2800);
+    } catch (error) {
+      console.error("HTMLive local site export failed", error);
+      const detail = error && error.message ? `：${error.message}` : "";
+      setSiteExportFeedback(`导出失败${detail}`, 3600);
     }
   }
 
@@ -1600,7 +1618,8 @@
     return path;
   }
 
-  function downloadBlob(blob, fileName) {
+  async function downloadBlob(blob, fileName) {
+    if (await downloadWithExtension(blob, fileName)) return;
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -1610,6 +1629,38 @@
     a.click();
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  async function downloadWithExtension(blob, fileName) {
+    if (typeof chrome === "undefined" || !chrome.runtime || !chrome.runtime.id) return false;
+    try {
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      const base64 = bytesToBase64(bytes);
+      const response = await new Promise((resolve) => {
+        chrome.runtime.sendMessage({
+          type: "htmlive-download",
+          fileName,
+          mimeType: blob.type || "application/octet-stream",
+          base64,
+        }, (result) => {
+          if (chrome.runtime.lastError) resolve({ ok: false });
+          else resolve(result || { ok: false });
+        });
+      });
+      return !!response.ok;
+    } catch (error) {
+      console.warn("HTMLive extension download failed; falling back to page download", error);
+      return false;
+    }
+  }
+
+  function bytesToBase64(bytes) {
+    const chunkSize = 0x8000;
+    let binary = "";
+    for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+      binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+    }
+    return btoa(binary);
   }
 
   function crc32(bytes) {
@@ -1695,9 +1746,13 @@
   function setSiteExportFeedback(label, resetMs = 1800) {
     const btn = chatPanel && chatPanel.querySelector('[data-action="export-site"]');
     if (!btn) return;
-    const old = "导出全部页面";
+    const old = siteExportDefaultLabel();
     btn.textContent = label;
     if (resetMs) setTimeout(() => { if (btn.isConnected) btn.textContent = old; }, resetMs);
+  }
+
+  function siteExportDefaultLabel() {
+    return location.protocol === "file:" ? "选择文件夹并导出" : "导出全部页面";
   }
 
   const ICON_MINIMIZE = `<svg width="10" height="2" viewBox="0 0 10 2" fill="none"><line x1="0" y1="1" x2="10" y2="1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`;

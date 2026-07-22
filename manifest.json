@@ -1,0 +1,34 @@
+{
+  "manifest_version": 3,
+  "name": "HTMLive",
+  "version": "0.1.0",
+  "description": "Edit the HTML already open in your browser, including across page navigations.",
+  "permissions": [
+    "activeTab",
+    "downloads",
+    "scripting",
+    "storage"
+  ],
+  "action": {
+    "default_title": "打开 HTMLive"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "http://*/*",
+        "https://*/*",
+        "file:///*"
+      ],
+      "css": [
+        "assets/editor.css"
+      ],
+      "js": [
+        "assets/editor.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}
