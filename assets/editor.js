@@ -769,12 +769,12 @@
     domRedoStack.length = 0;
   }
 
-  function updateExportRemovalSelectors(entries, present) {
+  function updateExportRemovalSelectors(entries, shouldTrackRules) {
     for (const entry of entries) {
       const rule = entry.exportRemovalRule;
       if (!rule) continue;
       const key = JSON.stringify(rule);
-      if (present) exportedRemovalRules.set(key, rule);
+      if (shouldTrackRules) exportedRemovalRules.set(key, rule);
       else exportedRemovalRules.delete(key);
     }
     window[EXPORT_REMOVALS_KEY] = Array.from(exportedRemovalRules.values());
@@ -1201,28 +1201,48 @@
     script.textContent = `(() => {
       const rules = ${rules};
       const normalize = (text) => (text || "").replace(/\\s+/g, " ").trim();
+      const matchingChildren = (parent, tagName) => Array.from(parent.children)
+        .filter((child) => child.tagName.toLowerCase() === tagName);
+      const resolveParent = (root, rule) => {
+        let parent = root;
+        for (const segment of rule.parentPath || []) {
+          parent = matchingChildren(parent, segment.tag)[segment.index];
+          if (!parent) return null;
+        }
+        return parent;
+      };
       const matches = (node, rule) => {
         for (const [name, value] of Object.entries(rule.attributes || {})) {
           if (node.getAttribute(name) !== value) return false;
         }
-        return !rule.text || normalize(node.textContent || node.getAttribute("aria-label")).includes(rule.text);
+        return !rule.text || normalize(node.textContent || node.getAttribute("aria-label")) === rule.text;
       };
       const removeMatches = () => {
+        const targets = new Set();
         for (const rule of rules) {
           try {
-            document.querySelectorAll(rule.selector).forEach((node) => {
-              if (matches(node, rule)) node.remove();
+            document.querySelectorAll(rule.rootSelector).forEach((root) => {
+              const parent = resolveParent(root, rule);
+              const node = parent && matchingChildren(parent, rule.tag)[rule.siblingIndex];
+              if (node && matches(node, rule)) targets.add(node);
             });
           } catch (_) {}
         }
+        targets.forEach((node) => node.remove());
       };
       removeMatches();
       let pending = false;
-      new MutationObserver(() => {
+      const observer = new MutationObserver(() => {
         if (pending) return;
         pending = true;
-        queueMicrotask(() => { pending = false; removeMatches(); });
-      }).observe(document.documentElement, { childList: true, subtree: true });
+        queueMicrotask(() => {
+          pending = false;
+          observer.disconnect();
+          removeMatches();
+          observer.observe(document.documentElement, { childList: true, subtree: true });
+        });
+      });
+      observer.observe(document.documentElement, { childList: true, subtree: true });
     })();`;
     body.appendChild(script);
   }
@@ -1981,6 +2001,21 @@
     let root = parent;
     while (root && root !== document.body && !root.id) root = root.parentElement;
     const rootSelector = root && root.id ? `#${CSS.escape(root.id)}` : "body";
+    const pathRoot = root || document.body;
+    const parentPath = [];
+    let pathNode = parent;
+    while (pathNode && pathNode !== pathRoot) {
+      const siblings = Array.from(pathNode.parentElement.children)
+        .filter((sibling) => sibling.tagName === pathNode.tagName);
+      parentPath.unshift({
+        tag: pathNode.tagName.toLowerCase(),
+        index: siblings.indexOf(pathNode),
+      });
+      pathNode = pathNode.parentElement;
+    }
+    if (pathNode !== pathRoot) return null;
+    const siblings = Array.from(parent.children)
+      .filter((sibling) => sibling.tagName === el.tagName);
     const attributes = {};
     let hasStableAttribute = false;
     for (const attribute of Array.from(el.attributes)) {
@@ -1995,9 +2030,11 @@
     const text = normalizeExportText(
       heading ? heading.textContent : (el.getAttribute("aria-label") || el.textContent)
     );
-    if (!text && !Object.keys(attributes).length) return null;
     return {
-      selector: `${rootSelector} ${el.tagName.toLowerCase()}`,
+      rootSelector,
+      parentPath,
+      tag: el.tagName.toLowerCase(),
+      siblingIndex: siblings.indexOf(el),
       attributes,
       text: hasStableAttribute ? "" : text,
     };
