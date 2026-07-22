@@ -41,8 +41,10 @@
   let styleDrawerOpen = false;
   const domHistory = [];
   const domRedoStack = [];
-  const exportedRemovalSelectors = new Set(
-    Array.isArray(window[EXPORT_REMOVALS_KEY]) ? window[EXPORT_REMOVALS_KEY] : []
+  const exportedRemovalRules = new Map(
+    (Array.isArray(window[EXPORT_REMOVALS_KEY]) ? window[EXPORT_REMOVALS_KEY] : [])
+      .filter((rule) => rule && typeof rule.selector === "string")
+      .map((rule) => [JSON.stringify(rule), rule])
   );
 
 
@@ -769,12 +771,13 @@
 
   function updateExportRemovalSelectors(entries, present) {
     for (const entry of entries) {
-      const selector = entry.exportSelector || entry.selector;
-      if (!selector) continue;
-      if (present) exportedRemovalSelectors.add(selector);
-      else exportedRemovalSelectors.delete(selector);
+      const rule = entry.exportRemovalRule;
+      if (!rule) continue;
+      const key = JSON.stringify(rule);
+      if (present) exportedRemovalRules.set(key, rule);
+      else exportedRemovalRules.delete(key);
     }
-    window[EXPORT_REMOVALS_KEY] = Array.from(exportedRemovalSelectors);
+    window[EXPORT_REMOVALS_KEY] = Array.from(exportedRemovalRules.values());
   }
 
   function deletableSelections() {
@@ -795,7 +798,7 @@
 
     const entries = targets.map((el) => ({
       ...createElementSnapshot(el, "remove"),
-      exportSelector: buildExportRemovalSelector(el),
+      exportRemovalRule: buildExportRemovalRule(el),
       node: el,
     }));
     clearSelection();
@@ -1189,21 +1192,37 @@
   }
 
   function appendExportRemovalScript(clone) {
-    if (!exportedRemovalSelectors.size) return;
+    if (!exportedRemovalRules.size) return;
     const body = clone.querySelector("body");
     if (!body) return;
-    const selectors = JSON.stringify(Array.from(exportedRemovalSelectors)).replace(/</g, "\\u003c");
+    const rules = JSON.stringify(Array.from(exportedRemovalRules.values())).replace(/</g, "\\u003c");
     const script = document.createElement("script");
     script.setAttribute("data-htmlive-export-removals", "");
     script.textContent = `(() => {
-      const selectors = ${selectors};
+      const rules = ${rules};
+      const normalize = (text) => (text || "").replace(/\\s+/g, " ").trim();
+      const matches = (node, rule) => {
+        for (const [name, value] of Object.entries(rule.attributes || {})) {
+          if (node.getAttribute(name) !== value) return false;
+        }
+        return !rule.text || normalize(node.textContent || node.getAttribute("aria-label")).includes(rule.text);
+      };
       const removeMatches = () => {
-        for (const selector of selectors) {
-          try { document.querySelectorAll(selector).forEach((node) => node.remove()); } catch (_) {}
+        for (const rule of rules) {
+          try {
+            document.querySelectorAll(rule.selector).forEach((node) => {
+              if (matches(node, rule)) node.remove();
+            });
+          } catch (_) {}
         }
       };
       removeMatches();
-      new MutationObserver(removeMatches).observe(document.documentElement, { childList: true, subtree: true });
+      let pending = false;
+      new MutationObserver(() => {
+        if (pending) return;
+        pending = true;
+        queueMicrotask(() => { pending = false; removeMatches(); });
+      }).observe(document.documentElement, { childList: true, subtree: true });
     })();`;
     body.appendChild(script);
   }
@@ -1957,24 +1976,35 @@
     };
   }
 
-  function buildExportRemovalSelector(el) {
-    const parts = [];
-    let node = el;
-    while (node && node !== document.body && node !== document.documentElement) {
-      let segment = node.tagName.toLowerCase();
-      const parent = node.parentElement;
-      if (parent) {
-        const siblings = Array.from(parent.children).filter((child) => child.tagName === node.tagName);
-        if (siblings.length > 1) segment += `:nth-of-type(${siblings.indexOf(node) + 1})`;
+  function buildExportRemovalRule(el) {
+    const parent = el.parentElement;
+    let root = parent;
+    while (root && root !== document.body && !root.id) root = root.parentElement;
+    const rootSelector = root && root.id ? `#${CSS.escape(root.id)}` : "body";
+    const attributes = {};
+    let hasStableAttribute = false;
+    for (const attribute of Array.from(el.attributes)) {
+      if ((attribute.name.startsWith("data-") && attribute.name !== AI_ID) || attribute.name === "aria-label") {
+        attributes[attribute.name] = attribute.value;
+        if (["data-day", "data-add", "aria-label"].includes(attribute.name)) {
+          hasStableAttribute = true;
+        }
       }
-      parts.unshift(segment);
-      if (node !== el && node.id) {
-        parts[0] = `#${node.id}`;
-        break;
-      }
-      node = parent;
     }
-    return parts.join(" > ");
+    const heading = el.querySelector("h1, h2, h3, h4, h5, h6");
+    const text = normalizeExportText(
+      heading ? heading.textContent : (el.getAttribute("aria-label") || el.textContent)
+    );
+    if (!text && !Object.keys(attributes).length) return null;
+    return {
+      selector: `${rootSelector} ${el.tagName.toLowerCase()}`,
+      attributes,
+      text: hasStableAttribute ? "" : text,
+    };
+  }
+
+  function normalizeExportText(text) {
+    return (text || "").replace(/\s+/g, " ").trim().slice(0, 160);
   }
 
   function applyModifications(mods, aiBubble, displayText) {
