@@ -598,25 +598,35 @@
   function startTextEdit(el) {
     if (textEditState) finishTextEdit();
     const before = createElementSnapshot(el, "manual-text");
-    textEditState = { el, before };
+    const keydownHandler = (e) => {
+      if (e.key === "Escape") { e.preventDefault(); finishTextEdit(false); restoreSnapshot(before); }
+      if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { e.preventDefault(); el.blur(); }
+    };
+    textEditState = {
+      el,
+      before,
+      keydownHandler,
+      originalContentEditable: el.getAttribute("contenteditable"),
+      originalSpellcheck: el.getAttribute("spellcheck"),
+    };
     el.setAttribute("data-ai-editor-text-editing", "true");
     el.contentEditable = "true";
     el.spellcheck = true;
     el.focus();
-    const finish = () => finishTextEdit();
-    el.addEventListener("blur", finish, { once: true });
-    el.addEventListener("keydown", (e) => {
-      if (e.key === "Escape") { e.preventDefault(); restoreSnapshot(before); finishTextEdit(false); }
-      if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { e.preventDefault(); el.blur(); }
-    }, { once: true });
+    el.addEventListener("blur", () => finishTextEdit(), { once: true });
+    el.addEventListener("keydown", keydownHandler);
   }
 
   function finishTextEdit(record = true) {
     if (!textEditState) return;
-    const { el, before } = textEditState;
-    el.contentEditable = "false";
-    el.removeAttribute("data-ai-editor-text-editing");
+    const { el, before, keydownHandler, originalContentEditable, originalSpellcheck } = textEditState;
     textEditState = null;
+    el.removeEventListener("keydown", keydownHandler);
+    if (originalContentEditable === null) el.removeAttribute("contenteditable");
+    else el.setAttribute("contenteditable", originalContentEditable);
+    if (originalSpellcheck === null) el.removeAttribute("spellcheck");
+    else el.setAttribute("spellcheck", originalSpellcheck);
+    el.removeAttribute("data-ai-editor-text-editing");
     if (record && el.outerHTML !== before.outerHTML) {
       recordDomChange({ before, after: createElementSnapshot(el, "manual-text") });
     }
@@ -1188,7 +1198,112 @@
     });
     clone.classList.remove(`${NS}-edit-mode`);
     appendExportRemovalScript(clone);
+    appendExportStateScript(clone);
     return "<!doctype html>\n" + clone.outerHTML;
+  }
+
+  function appendExportStateScript(clone) {
+    const rules = collectExportStateRules();
+    if (!rules.length) return;
+    const body = clone.querySelector("body");
+    if (!body) return;
+    const serializedRules = JSON.stringify(rules).replace(/</g, "\\u003c");
+    const script = document.createElement("script");
+    script.setAttribute("data-htmlive-export-state", "");
+    script.textContent = `(() => {
+      const rules = ${serializedRules};
+      const applyState = () => {
+        for (const rule of rules) {
+          let node;
+          try { node = document.querySelector(rule.selector); } catch (_) { continue; }
+          if (!node) continue;
+          if (rule.remove) {
+            node.remove();
+            continue;
+          }
+          const desiredNames = new Set(Object.keys(rule.attributes));
+          for (const attribute of Array.from(node.attributes)) {
+            if (!desiredNames.has(attribute.name)) node.removeAttribute(attribute.name);
+          }
+          for (const [name, value] of Object.entries(rule.attributes)) {
+            if (node.getAttribute(name) !== value) node.setAttribute(name, value);
+          }
+          if (node.innerHTML !== rule.html) node.innerHTML = rule.html;
+        }
+      };
+      applyState();
+      let pending = false;
+      const observer = new MutationObserver(() => {
+        if (pending) return;
+        pending = true;
+        queueMicrotask(() => {
+          pending = false;
+          observer.disconnect();
+          applyState();
+          observer.observe(document.documentElement, {
+            attributes: true,
+            characterData: true,
+            childList: true,
+            subtree: true,
+          });
+        });
+      });
+      observer.observe(document.documentElement, {
+        attributes: true,
+        characterData: true,
+        childList: true,
+        subtree: true,
+      });
+    })();`;
+    body.appendChild(script);
+  }
+
+  function collectExportStateRules() {
+    const rules = new Map();
+    const addElement = (snapshot, element) => {
+      if (!snapshot || !snapshot.selector || !element) return;
+      const clean = element.cloneNode(true);
+      clean.removeAttribute(AI_ID);
+      clean.removeAttribute("data-ai-editor-text-editing");
+      clean.querySelectorAll(`[${AI_ID}]`).forEach((node) => node.removeAttribute(AI_ID));
+      clean.querySelectorAll('[data-ai-editor-text-editing]').forEach((node) => {
+        node.removeAttribute("data-ai-editor-text-editing");
+        node.removeAttribute("contenteditable");
+      });
+      const key = snapshot.aiId || snapshot.selector;
+      const previous = rules.get(key);
+      rules.set(key, {
+        selector: previous ? previous.selector : snapshot.selector,
+        attributes: Object.fromEntries(Array.from(clean.attributes, (attribute) => [attribute.name, attribute.value])),
+        html: clean.innerHTML,
+      });
+    };
+    const addSnapshot = (snapshot) => {
+      if (!snapshot) return null;
+      const element = snapshot.aiId ? byAiId(snapshot.aiId) : (() => {
+        try { return document.querySelector(snapshot.selector); } catch (_) { return null; }
+      })();
+      if (element) addElement(snapshot, element);
+      return element;
+    };
+
+    for (const change of domHistory) {
+      if (change.type !== "remove") addSnapshot(change.before);
+    }
+    for (const snapshot of snapshotStack) {
+      for (const entry of snapshot.entries) {
+        const element = addSnapshot(entry);
+        if (!element && entry.action === "remove" && entry.selector) {
+          rules.set(`remove:${entry.selector}`, { selector: entry.selector, remove: true });
+        } else if (element && entry.action === "move" && element.parentElement) {
+          addElement({
+            aiId: element.parentElement.getAttribute(AI_ID),
+            selector: buildSelector(element.parentElement),
+          }, element.parentElement);
+        }
+      }
+    }
+    return Array.from(rules.values());
   }
 
   function appendExportRemovalScript(clone) {
@@ -1575,12 +1690,12 @@
   }
 
   function buildSelector(el) {
-    if (el.id) return `#${el.id}`;
+    if (el.id) return `#${CSS.escape(el.id)}`;
     const parts = [];
     let node = el;
     while (node && node !== document.body && node !== document.documentElement) {
       let seg = node.tagName.toLowerCase();
-      if (node.id) { parts.unshift(`#${node.id}`); break; }
+      if (node.id) { parts.unshift(`#${CSS.escape(node.id)}`); break; }
       const p = node.parentElement;
       if (p) {
         const s = Array.from(p.children).filter(c => c.tagName === node.tagName);
