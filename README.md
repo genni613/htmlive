@@ -49,7 +49,7 @@ Small changes to an AI-generated page can mean another prompt, another generatio
 - Delete selected text, buttons, or other elements, including multi-selection; exported pages retain those removals even if their own scripts re-render the page
 - Undo/redo for direct edits, plus per-change undo for AI edits
 - Optional AI chat preview with an OpenAI-compatible endpoint
-- Export the edited DOM as a standalone HTML file
+- Export the edited DOM as a standalone HTML file; edited nodes receive stable `data-htmlive-id` identifiers and text, style, attribute, move, and removal changes are replayed as granular patches
 - No build step or application backend—the editor runs in the page
 
 ## Limitations
@@ -58,6 +58,7 @@ HTMLive is a finishing tool, not a full website builder.
 
 - It works best for a single existing HTML page whose copy, style, or a few component positions need adjustment.
 - It preserves the page's existing CSS, JavaScript, and animations where possible. Complex multi-page flows, restricted iframes, and browser security constraints cannot always be edited.
+- Changes to script-rendered content are visual runtime overrides. HTMLive replays them after the page renders, but does not update the JavaScript variable, API response, store, or other data source that produced the content.
 - A bookmarklet cannot silently overwrite arbitrary local files. Browsers with the File System Access API show a Save As dialog; other browsers download an `-edited.html` file.
 
 ## Local development
@@ -68,6 +69,12 @@ python3 -m http.server 4173 --bind 127.0.0.1
 
 Open `http://127.0.0.1:4173/index.html`, then drag the generated bookmarklet to your bookmarks bar.
 
+Run the browser regression test with:
+
+```bash
+node tests/run.mjs
+```
+
 ## Project structure
 
 ```text
@@ -75,6 +82,7 @@ index.html                    GitHub Pages install page
 assets/editor.js              In-page selection, editing, AI, history, and export logic
 assets/editor.css             Editor UI styles
 docs/images/htmlive-hero.gif  README product demo
+tests/                        Headless Chrome export regression coverage
 ```
 
 ## Acknowledgements
@@ -138,7 +146,7 @@ HTMLive 不重新生成页面，而是在**原页面上修订**。已有的 CSS�
 - 删除选中的文字、按钮或其他元素，支持多选删除；即使导出页面自己的脚本重新渲染内容，也会保留删除结果
 - 直接操作的撤销 / 重做；AI 操作可逐次撤销
 - 可选的 OpenAI-compatible AI 指令预览
-- 导出为独立 HTML 文件
+- 导出为独立 HTML 文件；被修改节点会获得稳定的 `data-htmlive-id`，文字、样式、属性、移动和删除以细粒度补丁重放
 - 无构建步骤、无应用后端：编辑器直接在当前页面运行
 
 ### 适用边界
@@ -147,4 +155,5 @@ HTMLive 是“完成最后修改”的工具，不是完整的网站构建器：
 
 - 最适合已有布局和动效、只需编辑文案、样式或少量组件位置的单页 HTML。
 - 它会尽力保留原页面现有的 CSS、JavaScript 和动画；复杂的跨页面流程、受限 iframe 或浏览器安全策略下的内容，不保证都能编辑。
+- 对脚本动态生成的内容，修改属于“运行时视觉覆盖”：HTMLive 会在页面渲染后重放补丁，但不会反向修改生成内容的 JavaScript 变量、接口响应、状态仓库或其他数据源。
 - 书签工具无法静默覆盖任意本地文件。支持 File System Access API 的浏览器会打开“另存为”；其他浏览器会下载一个 `-edited.html` 文件。

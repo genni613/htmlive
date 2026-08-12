@@ -246,6 +246,17 @@
   user-select: none;
 }
 
+.ai-editor-runtime-notice {
+  margin: 0 8px 7px;
+  padding: 7px 9px;
+  border: 1px solid #f0d9a8;
+  border-radius: 6px;
+  background: #fff8e8;
+  color: #785a1f;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
 /* ── Drag handle ─────────────────────────────────────────── */
 .ai-editor-drag-handle {
   height: 32px;

@@ -9,12 +9,13 @@
 
   const NS = "ai-editor";
   const AI_ID = "data-ai-id";
-  const EXPORT_REMOVALS_KEY = "__htmliveExportRemovalSelectors";
+  const HTMLIVE_ID = "data-htmlive-id";
 
   let selectedElements = [];
   let chatPanel = null;
   let hoverBox = null;
   let aiIdCounter = 0;
+  let htmliveIdCounter = 0;
   let rafPending = false;
   let lastMoveTarget = null;
   let minimized = false;
@@ -41,13 +42,6 @@
   let styleDrawerOpen = false;
   const domHistory = [];
   const domRedoStack = [];
-  const exportedRemovalRules = new Map(
-    (Array.isArray(window[EXPORT_REMOVALS_KEY]) ? window[EXPORT_REMOVALS_KEY] : [])
-      .filter((rule) => rule && typeof rule.selector === "string")
-      .map((rule) => [JSON.stringify(rule), rule])
-  );
-
-
   function on(target, type, fn, capture) {
     target.addEventListener(type, fn, capture);
     listeners.push({ target, type, fn, capture });
@@ -172,6 +166,17 @@
 
   function byAiId(id) {
     return document.querySelector(`[${AI_ID}="${id}"]`);
+  }
+
+  function ensureHtmliveId(el) {
+    let id = el.getAttribute(HTMLIVE_ID);
+    if (id) return id;
+    const random = globalThis.crypto && typeof globalThis.crypto.randomUUID === "function"
+      ? globalThis.crypto.randomUUID()
+      : `${Date.now().toString(36)}-${htmliveIdCounter++}`;
+    id = `hlv-${random}`;
+    el.setAttribute(HTMLIVE_ID, id);
+    return id;
   }
 
   // ── Resolve target ─────────────────────────────────────────
@@ -692,10 +697,14 @@
     }
     const afterTarget = d.historyTarget || d.el;
     if (afterTarget.outerHTML !== d.before.outerHTML) {
-      recordDomChange({
+      const change = {
         before: d.before,
         after: createElementSnapshot(afterTarget, `manual-${d.layout || "normal"}-${d.kind}`),
-      });
+      };
+      if (d.kind === "move" && d.layout !== "normal") {
+        change.patches = movePatch(createElementSnapshot(d.el, `manual-${d.layout}-move-target`));
+      }
+      recordDomChange(change);
     }
   }
 
@@ -774,20 +783,10 @@
   }
 
   function recordDomChange(change) {
+    if (!change.patches && change.before) change.patches = diffSnapshot(change.before);
     domHistory.push(change);
     if (domHistory.length > 100) domHistory.shift();
     domRedoStack.length = 0;
-  }
-
-  function updateExportRemovalSelectors(entries, shouldTrackRules) {
-    for (const entry of entries) {
-      const rule = entry.exportRemovalRule;
-      if (!rule) continue;
-      const key = JSON.stringify(rule);
-      if (shouldTrackRules) exportedRemovalRules.set(key, rule);
-      else exportedRemovalRules.delete(key);
-    }
-    window[EXPORT_REMOVALS_KEY] = Array.from(exportedRemovalRules.values());
   }
 
   function deletableSelections() {
@@ -808,14 +807,12 @@
 
     const entries = targets.map((el) => ({
       ...createElementSnapshot(el, "remove"),
-      exportRemovalRule: buildExportRemovalRule(el),
       node: el,
     }));
     clearSelection();
     for (const el of targets) el.remove();
 
     recordDomChange({ type: "remove", entries });
-    updateExportRemovalSelectors(entries, true);
     updateTags();
     showHover(null);
   }
@@ -878,7 +875,6 @@
     if (change.type === "remove") {
       const restoredElements = restoreRemovedElements(change.entries);
       restored = restoredElements.length > 0;
-      if (restored) updateExportRemovalSelectors(change.entries, false);
       clearSelection();
       for (const el of restoredElements) addSelection(el);
       updateTags();
@@ -896,7 +892,6 @@
     if (change.type === "remove") {
       if (!reapplyRemoval(change.entries)) return false;
       domHistory.push(change);
-      updateExportRemovalSelectors(change.entries, true);
     } else if (restoreSnapshot(change.after)) {
       domHistory.push(change);
     }
@@ -1023,6 +1018,9 @@
           <button class="${NS}-style-btn" data-action="style-drawer" disabled>样式</button>
           <button class="${NS}-delete-btn" data-action="delete-selected" title="删除选中元素（Delete / Backspace）" disabled>删除</button>
           <button class="${NS}-export-btn" data-action="export-html">导出 HTML</button>
+        </div>
+        <div class="${NS}-runtime-notice" role="note">
+          运行时视觉覆盖：动态内容会在脚本重渲染后重放；不修改 JS 变量或数据源。
         </div>
         <div class="${NS}-style-drawer" hidden>
           <div class="${NS}-drawer-title">选中组件样式</div>
@@ -1185,7 +1183,9 @@
   }
 
   function buildExportHtml() {
+    const patches = collectExportPatches();
     const clone = document.documentElement.cloneNode(true);
+    clone.querySelectorAll('[data-htmlive-editor-loader]').forEach((node) => node.remove());
     clone.querySelectorAll('[data-ai-editor-style]').forEach((node) => node.remove());
     clone.querySelectorAll([
       `.${NS}-root`, `.${NS}-hover-box`, `.${NS}-sel-box`, `.${NS}-sel-corner`,
@@ -1197,41 +1197,70 @@
       node.removeAttribute('contenteditable');
     });
     clone.classList.remove(`${NS}-edit-mode`);
-    appendExportRemovalScript(clone);
-    appendExportStateScript(clone);
+    appendExportPatchScript(clone, patches);
     return "<!doctype html>\n" + clone.outerHTML;
   }
 
-  function appendExportStateScript(clone) {
-    const rules = collectExportStateRules();
-    if (!rules.length) return;
+  function appendExportPatchScript(clone, patches) {
+    if (!patches.length) return;
     const body = clone.querySelector("body");
     if (!body) return;
-    const serializedRules = JSON.stringify(rules).replace(/</g, "\\u003c");
+    const serializedPatches = JSON.stringify(patches).replace(/</g, "\\u003c");
     const script = document.createElement("script");
-    script.setAttribute("data-htmlive-export-state", "");
+    script.setAttribute("data-htmlive-export-patches", "");
     script.textContent = `(() => {
-      const rules = ${serializedRules};
-      const applyState = () => {
-        for (const rule of rules) {
-          let node;
-          try { node = document.querySelector(rule.selector); } catch (_) { continue; }
+      const patches = ${serializedPatches};
+      const stableSelector = (id) => '[data-htmlive-id="' + String(id) + '"]';
+      const resolve = (target) => {
+        let node = null;
+        if (target.id) {
+          try { node = document.querySelector(stableSelector(target.id)); } catch (_) {}
+        }
+        if (!node && target.selector) {
+          try { node = document.querySelector(target.selector); } catch (_) {}
+        }
+        if (node && target.id && node.getAttribute('data-htmlive-id') !== target.id) {
+          node.setAttribute('data-htmlive-id', target.id);
+        }
+        return node;
+      };
+      const textNodeAt = (root, path) => {
+        let node = root;
+        for (const index of path || []) node = node && node.childNodes[index];
+        return node && node.nodeType === Node.TEXT_NODE ? node : null;
+      };
+      const applyPatches = () => {
+        for (const patch of patches) {
+          const node = resolve(patch.target);
           if (!node) continue;
-          if (rule.remove) {
-            node.remove();
-            continue;
+          if (patch.op === 'remove') { node.remove(); continue; }
+          if (patch.op === 'set-text') {
+            if (node.textContent !== patch.value) node.textContent = patch.value;
+          } else if (patch.op === 'set-text-node') {
+            const text = textNodeAt(node, patch.path);
+            if (text && text.nodeValue !== patch.value) text.nodeValue = patch.value;
+          } else if (patch.op === 'set-style') {
+            if (node.style.getPropertyValue(patch.property) !== patch.value || node.style.getPropertyPriority(patch.property) !== (patch.priority || '')) {
+              node.style.setProperty(patch.property, patch.value, patch.priority || '');
+            }
+          } else if (patch.op === 'remove-style') {
+            if (node.style.getPropertyValue(patch.property)) node.style.removeProperty(patch.property);
+          } else if (patch.op === 'set-attribute') {
+            if (node.getAttribute(patch.name) !== patch.value) node.setAttribute(patch.name, patch.value);
+          } else if (patch.op === 'remove-attribute') {
+            if (node.hasAttribute(patch.name)) node.removeAttribute(patch.name);
+          } else if (patch.op === 'set-html') {
+            if (node.innerHTML !== patch.value) node.innerHTML = patch.value;
+          } else if (patch.op === 'move') {
+            const parent = resolve(patch.parent);
+            const before = patch.before ? resolve(patch.before) : null;
+            if (parent && node.parentElement !== parent) parent.insertBefore(node, before);
+            else if (parent && before && node.nextElementSibling !== before) parent.insertBefore(node, before);
+            else if (parent && !before && node.nextElementSibling) parent.appendChild(node);
           }
-          const desiredNames = new Set(Object.keys(rule.attributes));
-          for (const attribute of Array.from(node.attributes)) {
-            if (!desiredNames.has(attribute.name)) node.removeAttribute(attribute.name);
-          }
-          for (const [name, value] of Object.entries(rule.attributes)) {
-            if (node.getAttribute(name) !== value) node.setAttribute(name, value);
-          }
-          if (node.innerHTML !== rule.html) node.innerHTML = rule.html;
         }
       };
-      applyState();
+      applyPatches();
       let pending = false;
       const observer = new MutationObserver(() => {
         if (pending) return;
@@ -1239,7 +1268,7 @@
         queueMicrotask(() => {
           pending = false;
           observer.disconnect();
-          applyState();
+          applyPatches();
           observer.observe(document.documentElement, {
             attributes: true,
             characterData: true,
@@ -1258,118 +1287,143 @@
     body.appendChild(script);
   }
 
-  function collectExportStateRules() {
-    const rules = new Map();
-    const addElement = (snapshot, element) => {
-      if (!snapshot || !snapshot.selector || !element) return;
-      const clean = element.cloneNode(true);
-      clean.removeAttribute(AI_ID);
-      clean.removeAttribute("data-ai-editor-text-editing");
-      clean.querySelectorAll(`[${AI_ID}]`).forEach((node) => node.removeAttribute(AI_ID));
-      clean.querySelectorAll('[data-ai-editor-text-editing]').forEach((node) => {
-        node.removeAttribute("data-ai-editor-text-editing");
-        node.removeAttribute("contenteditable");
-      });
-      const key = snapshot.aiId || snapshot.selector;
-      const previous = rules.get(key);
-      rules.set(key, {
-        selector: previous ? previous.selector : snapshot.selector,
-        attributes: Object.fromEntries(Array.from(clean.attributes, (attribute) => [attribute.name, attribute.value])),
-        html: clean.innerHTML,
-      });
-    };
-    const addSnapshot = (snapshot) => {
-      if (!snapshot) return null;
-      const element = snapshot.aiId ? byAiId(snapshot.aiId) : (() => {
-        try { return document.querySelector(snapshot.selector); } catch (_) { return null; }
-      })();
-      if (element) addElement(snapshot, element);
-      return element;
-    };
-
+  function collectExportPatches() {
+    const patches = [];
     for (const change of domHistory) {
-      if (change.type !== "remove") addSnapshot(change.before);
+      if (change.type === "remove") {
+        for (const entry of change.entries) patches.push({ op: "remove", target: snapshotTarget(entry) });
+      } else {
+        patches.push(...(change.patches || diffSnapshot(change.before)));
+      }
     }
     for (const snapshot of snapshotStack) {
       for (const entry of snapshot.entries) {
-        const element = addSnapshot(entry);
-        if (!element && entry.action === "remove" && entry.selector) {
-          rules.set(`remove:${entry.selector}`, { selector: entry.selector, remove: true });
-        } else if (element && entry.action === "move" && element.parentElement) {
-          addElement({
-            aiId: element.parentElement.getAttribute(AI_ID),
-            selector: buildSelector(element.parentElement),
-          }, element.parentElement);
-        }
+        if (entry.action === "remove") patches.push({ op: "remove", target: snapshotTarget(entry) });
+        else patches.push(...(entry.patches || (entry.action === "move" ? movePatch(entry) : diffSnapshot(entry))));
       }
     }
-    return Array.from(rules.values());
+    return patches;
   }
 
-  function appendExportRemovalScript(clone) {
-    if (!exportedRemovalRules.size) return;
-    const body = clone.querySelector("body");
-    if (!body) return;
-    const rules = JSON.stringify(Array.from(exportedRemovalRules.values())).replace(/</g, "\\u003c");
-    const script = document.createElement("script");
-    script.setAttribute("data-htmlive-export-removals", "");
-    script.textContent = `(() => {
-      const rules = ${rules};
-      const normalize = (text) => (text || "").replace(/\\s+/g, " ").trim().slice(0, 160);
-      const matchingChildren = (parent, tagName) => Array.from(parent.children)
-        .filter((child) => child.tagName.toLowerCase() === tagName);
-      const matchesIdentity = (node, identity) => {
-        for (const [name, value] of Object.entries(identity.attributes || {})) {
-          if (node.getAttribute(name) !== value) return false;
-        }
-        if (!identity.text) return true;
-        const text = identity.textSource === "aria-label"
-          ? node.getAttribute("aria-label")
-          : identity.textSource
-            ? node.querySelector(identity.textSource)?.textContent
-            : node.textContent;
-        return normalize(text) === identity.text;
-      };
-      const resolveUniqueChild = (parent, segment) => {
-        const matches = matchingChildren(parent, segment.tag)
-          .filter((child) => matchesIdentity(child, segment));
-        return matches.length === 1 ? matches[0] : null;
-      };
-      const resolveParent = (root, rule) => {
-        let parent = root;
-        for (const segment of rule.parentPath || []) {
-          parent = resolveUniqueChild(parent, segment);
-          if (!parent) return null;
-        }
-        return parent;
-      };
-      const removeMatches = () => {
-        const targets = new Set();
-        for (const rule of rules) {
-          try {
-            const root = document.querySelector(rule.rootSelector);
-            const parent = root && resolveParent(root, rule);
-            const node = parent && resolveUniqueChild(parent, rule);
-            if (node) targets.add(node);
-          } catch (_) {}
-        }
-        targets.forEach((node) => node.remove());
-      };
-      removeMatches();
-      let pending = false;
-      const observer = new MutationObserver(() => {
-        if (pending) return;
-        pending = true;
-        queueMicrotask(() => {
-          pending = false;
-          observer.disconnect();
-          removeMatches();
-          observer.observe(document.documentElement, { childList: true, subtree: true });
-        });
-      });
-      observer.observe(document.documentElement, { childList: true, subtree: true });
-    })();`;
-    body.appendChild(script);
+  function snapshotTarget(snapshot) {
+    return { id: snapshot.htmliveId || "", selector: snapshot.selector || "" };
+  }
+
+  function currentSnapshotElement(snapshot) {
+    if (snapshot.htmliveId) {
+      const stable = document.querySelector(`[${HTMLIVE_ID}="${CSS.escape(snapshot.htmliveId)}"]`);
+      if (stable) return stable;
+    }
+    if (snapshot.aiId) {
+      const runtime = byAiId(snapshot.aiId);
+      if (runtime) return runtime;
+    }
+    try { return document.querySelector(snapshot.selector); } catch (_) { return null; }
+  }
+
+  function elementFromSnapshot(snapshot) {
+    const template = document.createElement("template");
+    template.innerHTML = snapshot.outerHTML;
+    const element = template.content.firstElementChild;
+    if (element) cleanPatchElement(element);
+    return element;
+  }
+
+  function cleanPatchElement(element) {
+    for (const node of [element, ...element.querySelectorAll("*")]) {
+      node.removeAttribute(AI_ID);
+      if (node.hasAttribute("data-ai-editor-text-editing")) {
+        node.removeAttribute("data-ai-editor-text-editing");
+        node.removeAttribute("contenteditable");
+        node.removeAttribute("spellcheck");
+      }
+    }
+    return element;
+  }
+
+  function styleMap(el) {
+    const map = new Map();
+    for (let index = 0; index < el.style.length; index += 1) {
+      const property = el.style[index];
+      map.set(property, { value: el.style.getPropertyValue(property), priority: el.style.getPropertyPriority(property) });
+    }
+    return map;
+  }
+
+  function attributeMap(el) {
+    return new Map(Array.from(el.attributes)
+      .filter((attribute) => ![AI_ID, HTMLIVE_ID, "style", "contenteditable", "spellcheck", "data-ai-editor-text-editing"].includes(attribute.name))
+      .map((attribute) => [attribute.name, attribute.value]));
+  }
+
+  function sameNodeShape(before, after) {
+    if (before.nodeType !== after.nodeType) return false;
+    if (before.nodeType === Node.ELEMENT_NODE && before.tagName !== after.tagName) return false;
+    if (before.childNodes.length !== after.childNodes.length) return false;
+    for (let index = 0; index < before.childNodes.length; index += 1) {
+      if (!sameNodeShape(before.childNodes[index], after.childNodes[index])) return false;
+    }
+    return true;
+  }
+
+  function collectTextPatches(before, after, target, path = [], patches = []) {
+    if (before.nodeType === Node.TEXT_NODE) {
+      if (before.nodeValue !== after.nodeValue) patches.push({ op: "set-text-node", target, path, value: after.nodeValue || "" });
+      return patches;
+    }
+    for (let index = 0; index < before.childNodes.length; index += 1) {
+      collectTextPatches(before.childNodes[index], after.childNodes[index], target, [...path, index], patches);
+    }
+    return patches;
+  }
+
+  function diffSnapshot(snapshot) {
+    const before = elementFromSnapshot(snapshot);
+    const current = currentSnapshotElement(snapshot);
+    if (!before || !current) return [];
+    const after = cleanPatchElement(current.cloneNode(true));
+    const target = snapshotTarget(snapshot);
+    const patches = [];
+    const beforeStyles = styleMap(before);
+    const afterStyles = styleMap(after);
+    for (const property of new Set([...beforeStyles.keys(), ...afterStyles.keys()])) {
+      const previous = beforeStyles.get(property);
+      const next = afterStyles.get(property);
+      if (!next) patches.push({ op: "remove-style", target, property });
+      else if (!previous || previous.value !== next.value || previous.priority !== next.priority) {
+        patches.push({ op: "set-style", target, property, value: next.value, priority: next.priority });
+      }
+    }
+    const beforeAttributes = attributeMap(before);
+    const afterAttributes = attributeMap(after);
+    for (const name of new Set([...beforeAttributes.keys(), ...afterAttributes.keys()])) {
+      const previous = beforeAttributes.get(name);
+      const next = afterAttributes.get(name);
+      if (next == null) patches.push({ op: "remove-attribute", target, name });
+      else if (previous !== next) patches.push({ op: "set-attribute", target, name, value: next });
+    }
+    if (before.innerHTML !== after.innerHTML) {
+      if (!before.children.length && !after.children.length) patches.push({ op: "set-text", target, value: after.textContent || "" });
+      else if (sameNodeShape(before, after)) collectTextPatches(before, after, target, [], patches);
+      // An explicit structural edit has no safe property-level equivalent.
+      else patches.push({ op: "set-html", target, value: after.innerHTML });
+    }
+    return patches;
+  }
+
+  function movePatch(snapshot) {
+    const element = currentSnapshotElement(snapshot);
+    if (!element || !element.parentElement) return [];
+    const parent = element.parentElement;
+    const before = element.nextElementSibling;
+    const parentSnapshot = createElementSnapshot(parent, "move-parent");
+    const beforeSnapshot = before ? createElementSnapshot(before, "move-before") : null;
+    return [{
+      op: "move",
+      target: snapshotTarget(snapshot),
+      parent: snapshotTarget(parentSnapshot),
+      before: beforeSnapshot ? snapshotTarget(beforeSnapshot) : null,
+    }];
   }
 
   function downloadExportHtml(html, fileName) {
@@ -1669,7 +1723,7 @@
   function buildElementContext(el, index) {
     const dataAttrs = {};
     for (const attr of el.attributes) {
-      if (attr.name.startsWith("data-") && attr.name !== AI_ID) {
+      if (attr.name.startsWith("data-") && attr.name !== AI_ID && attr.name !== HTMLIVE_ID) {
         dataAttrs[attr.name] = attr.value;
       }
     }
@@ -2108,10 +2162,12 @@
   }
 
   function createElementSnapshot(el, action) {
+    const htmliveId = ensureHtmliveId(el);
     const parent = el.parentElement;
     const next = el.nextElementSibling;
     return {
       aiId: el.getAttribute(AI_ID),
+      htmliveId,
       selector: buildSelector(el),
       outerHTML: el.outerHTML,
       parentAiId: parent ? parent.getAttribute(AI_ID) : null,
@@ -2119,65 +2175,6 @@
       nextSiblingAiId: next ? next.getAttribute(AI_ID) : null,
       action,
     };
-  }
-
-  function buildExportRemovalRule(el) {
-    const parent = el.parentElement;
-    let root = parent;
-    while (root && root !== document.body && !root.id) root = root.parentElement;
-    const rootSelector = root && root.id ? `#${CSS.escape(root.id)}` : "body";
-    const pathRoot = root || document.body;
-    const parentPath = [];
-    let pathNode = parent;
-    while (pathNode && pathNode !== pathRoot) {
-      const identity = buildExportRemovalIdentity(pathNode);
-      if (!identity) return null;
-      parentPath.unshift(identity);
-      pathNode = pathNode.parentElement;
-    }
-    if (pathNode !== pathRoot) return null;
-    const identity = buildExportRemovalIdentity(el);
-    if (!identity) return null;
-    return { rootSelector, parentPath, ...identity };
-  }
-
-  function buildExportRemovalIdentity(el) {
-    const siblings = Array.from(el.parentElement.children)
-      .filter((sibling) => sibling.tagName === el.tagName);
-    const attributes = {};
-    for (const attribute of Array.from(el.attributes)) {
-      if ((attribute.name.startsWith("data-") && attribute.name !== AI_ID) || attribute.name === "aria-label") {
-        attributes[attribute.name] = attribute.value;
-      }
-    }
-    const attributeEntries = Object.entries(attributes);
-    const attributeMatches = (candidate) => attributeEntries.every(
-      ([name, value]) => candidate.getAttribute(name) === value
-    );
-    if (attributeEntries.length && siblings.filter(attributeMatches).length === 1) {
-      return { tag: el.tagName.toLowerCase(), attributes, text: "" };
-    }
-    const heading = el.querySelector("h1, h2, h3, h4, h5, h6");
-    const textSource = heading
-      ? heading.tagName.toLowerCase()
-      : el.hasAttribute("aria-label") ? "aria-label" : "";
-    const identityText = (candidate) => {
-      if (textSource === "aria-label") return candidate.getAttribute("aria-label");
-      if (textSource) return candidate.querySelector(textSource)?.textContent;
-      return candidate.textContent;
-    };
-    const text = normalizeExportText(identityText(el));
-    if (!text) return null;
-    const matchingText = siblings.filter((candidate) => {
-      if (!attributeMatches(candidate)) return false;
-      return normalizeExportText(identityText(candidate)) === text;
-    });
-    if (matchingText.length !== 1) return null;
-    return { tag: el.tagName.toLowerCase(), attributes, text, textSource };
-  }
-
-  function normalizeExportText(text) {
-    return (text || "").replace(/\s+/g, " ").trim().slice(0, 160);
   }
 
   function applyModifications(mods, aiBubble, displayText) {
@@ -2223,6 +2220,9 @@
           el.remove();
           break;
       }
+      if (item.action === "remove") entry.patches = [{ op: "remove", target: snapshotTarget(entry) }];
+      else if (item.action === "move") entry.patches = movePatch(entry);
+      else entry.patches = diffSnapshot(entry);
     }
 
     rebindSelections();
