@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><title>HTMLive annotated AI test</title></head>
+<body>
+  <main class="landing-page">
+    <section class="hero">
+      <h1 id="hero-title">旧标题</h1>
+      <p id="untargeted-copy">帮助用户理解这个页面的上下文。</p>
+      <button id="hero-cta">旧按钮</button>
+    </section>
+  </main>
+  <output id="test-result">running</output>
+  <script>
+    if (window.top === window.self) {
+      localStorage.setItem('ai-editor-endpoint', 'https://example.test/v1');
+      localStorage.setItem('ai-editor-model', 'test-model');
+      const script = document.createElement('script');
+      script.setAttribute('data-htmlive-editor-loader', '');
+      script.src = '../../assets/editor.js';
+      script.onload = () => window.setTimeout(runTest, 0);
+      document.head.append(script);
+    }
+
+    async function runTest() {
+      const result = document.querySelector('#test-result');
+      try {
+        let requestBody = null;
+        let requestCount = 0;
+        let exportedBlob = null;
+        URL.createObjectURL = (blob) => { exportedBlob = blob; return 'blob:htmlive-ai-test'; };
+        HTMLAnchorElement.prototype.click = function () {};
+        window.showSaveFilePicker = undefined;
+        window.fetch = async (_url, options) => {
+          requestBody = JSON.parse(options.body);
+          requestCount += 1;
+          const titleId = document.querySelector('#hero-title').getAttribute('data-ai-id');
+          const ctaId = document.querySelector('#hero-cta').getAttribute('data-ai-id');
+          const mods = requestCount === 1 ? [
+              { aiId: titleId, action: 'html', html: '面向未来的产品' },
+              { aiId: ctaId, action: 'html', html: '立即体验' },
+              { aiId: ctaId, action: 'style', style: { backgroundColor: '#2563eb', color: '#ffffff' } },
+              { selector: '#untargeted-copy', action: 'html', html: '不应被模型越权修改' }
+            ] : [
+              { aiId: titleId, action: 'html', html: '简洁而面向未来' }
+            ];
+          const content = `已完成修改。\n\`\`\`json\n${JSON.stringify(mods)}\n\`\`\``;
+          const body = `data: ${JSON.stringify({ choices: [{ delta: { content } }] })}\n\ndata: [DONE]\n\n`;
+          return new Response(body, { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
+        };
+
+        const title = document.querySelector('#hero-title');
+        const cta = document.querySelector('#hero-cta');
+        title.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        document.querySelector('.ai-editor-annotate-btn').click();
+        let annotationInput = document.querySelector('.ai-editor-annotate-input');
+        annotationInput.value = '改成更有科技感的中文标题';
+        document.querySelector('.ai-editor-annotate-done').click();
+
+        cta.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        const annotateButtons = document.querySelectorAll('.ai-editor-annotate-btn');
+        annotateButtons[annotateButtons.length - 1].click();
+        annotationInput = document.querySelector('.ai-editor-annotate-input');
+        annotationInput.value = '文案改成立即体验，并使用蓝底白字';
+        document.querySelector('.ai-editor-annotate-done').click();
+
+        const chatInput = document.querySelector('.ai-editor-input');
+        if (chatInput.value) throw new Error('test requires an empty global instruction');
+        document.querySelector('[data-action="send"]').click();
+
+        for (let index = 0; index < 80 && document.querySelector('#hero-title').textContent !== '面向未来的产品'; index += 1) {
+          await new Promise((resolve) => setTimeout(resolve, 25));
+        }
+        if (!requestBody) throw new Error('annotated elements were not sent when the global input was empty');
+        const systemPrompt = requestBody.messages.find((message) => message.role === 'system')?.content || '';
+        const userPrompt = requestBody.messages.find((message) => message.role === 'user')?.content || '';
+        if (!userPrompt.includes('改成更有科技感的中文标题') || !userPrompt.includes('文案改成立即体验，并使用蓝底白字')) {
+          throw new Error('per-element annotations were not sent as user requirements');
+        }
+        if (!systemPrompt.includes('帮助用户理解这个页面的上下文')) {
+          throw new Error('nearby page context was missing from the model request');
+        }
+        if (!/2.*元素/.test(userPrompt)) throw new Error(`batch instruction was unclear: ${userPrompt}`);
+        if (document.querySelector('#hero-title').textContent !== '面向未来的产品') throw new Error('title modification was not previewed');
+        if (document.querySelector('#hero-cta').textContent !== '立即体验') throw new Error('CTA modification was not previewed');
+        if (document.querySelector('#hero-cta').style.backgroundColor !== 'rgb(37, 99, 235)') throw new Error('CTA style modification was not previewed');
+        if (document.querySelector('#untargeted-copy').textContent !== '帮助用户理解这个页面的上下文。') {
+          throw new Error('model modified an element outside the annotated task');
+        }
+
+        chatInput.value = '整体视觉保持简洁';
+        document.querySelector('[data-action="send"]').click();
+        for (let index = 0; index < 80 && document.querySelector('#hero-title').textContent !== '简洁而面向未来'; index += 1) {
+          await new Promise((resolve) => setTimeout(resolve, 25));
+        }
+        if (document.querySelector('#hero-title').textContent !== '简洁而面向未来') {
+          throw new Error('overall instruction excluded an annotated but unselected element');
+        }
+
+        document.querySelector('[data-action="export-html"]').click();
+        for (let index = 0; index < 40 && !exportedBlob; index += 1) {
+          await new Promise((resolve) => setTimeout(resolve, 25));
+        }
+        if (!exportedBlob) throw new Error('annotated AI revision did not export HTML');
+        const exportedHtml = await exportedBlob.text();
+        const exportedDocument = new DOMParser().parseFromString(exportedHtml, 'text/html');
+        if (!exportedDocument.querySelector('script[data-htmlive-export-patches]')) {
+          throw new Error('annotated AI revision was missing from the exported HTML');
+        }
+        if (exportedDocument.querySelector('.ai-editor-root') || exportedDocument.querySelector('[data-ai-id]')) {
+          throw new Error('editor UI metadata leaked into the exported HTML');
+        }
+        const frame = document.createElement('iframe');
+        frame.srcdoc = exportedHtml;
+        document.body.append(frame);
+        await new Promise((resolve) => { frame.onload = resolve; });
+        await new Promise((resolve) => setTimeout(resolve, 80));
+        if (frame.contentDocument.querySelector('#hero-title')?.textContent !== '简洁而面向未来') {
+          throw new Error('exported HTML lost the annotated title revision after reload');
+        }
+        if (frame.contentDocument.querySelector('#hero-cta')?.textContent !== '立即体验') {
+          throw new Error('exported HTML lost the annotated CTA revision after reload');
+        }
+
+        result.textContent = 'pass';
+        result.dataset.status = 'pass';
+      } catch (error) {
+        result.textContent = error && error.message ? error.message : String(error);
+        result.dataset.status = 'fail';
+      }
+    }
+  </script>
+</body>
+</html>

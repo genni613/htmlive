@@ -36,7 +36,8 @@ Small changes to an AI-generated page can mean another prompt, another generatio
 2. Drag the **HTMLive** button to your browser bookmarks bar.
 3. Open the HTML page you want to adjust and click the bookmark.
 4. Select an element and enter edit mode. Double-click text to edit it; use `⠿` to move it, `↘` to resize it, or `Delete`/`Backspace` to remove it.
-5. Choose **Export HTML** to save a standalone edited file.
+5. For an AI-assisted batch revision, select one or more elements, use the pencil beside each selection to save its instruction, configure an OpenAI-compatible endpoint, then press send. The main input is optional when element instructions have already been saved.
+6. Choose **Export HTML** to save a standalone edited file.
 
 > The bookmark embeds the current editor when you drag it. After an HTMLive update, refresh the install page and drag the button again.
 
@@ -49,6 +50,7 @@ Small changes to an AI-generated page can mean another prompt, another generatio
 - Delete selected text, buttons, or other elements, including multi-selection; exported pages retain those removals even if their own scripts re-render the page
 - Undo/redo for direct edits, plus per-change undo for AI edits
 - Optional AI chat preview with an OpenAI-compatible endpoint
+- Select multiple elements, save a separate AI instruction on each one, then send the whole revision as one context-aware task and export the previewed result as a new HTML file
 - Export the edited DOM as a standalone HTML file; edited nodes receive stable `data-htmlive-id` identifiers and text, style, attribute, move, and removal changes are replayed as granular patches
 - No build step or application backend—the editor runs in the page
 
@@ -146,6 +148,7 @@ HTMLive 不重新生成页面，而是在**原页面上修订**。已有的 CSS�
 - 删除选中的文字、按钮或其他元素，支持多选删除；即使导出页面自己的脚本重新渲染内容，也会保留删除结果
 - 直接操作的撤销 / 重做；AI 操作可逐次撤销
 - 可选的 OpenAI-compatible AI 指令预览
+- 支持多选元素并分别保存 AI 修改要求；无需填写整体指令即可统一发送，结合页面上下文预览修改后导出新的 HTML
 - 导出为独立 HTML 文件；被修改节点会获得稳定的 `data-htmlive-id`，文字、样式、属性、移动和删除以细粒度补丁重放
 - 无构建步骤、无应用后端：编辑器直接在当前页面运行
 

@@ -2,7 +2,25 @@
 <html lang="en">
 <head><meta charset="utf-8"><title>HTMLive dynamic export test</title></head>
 <body>
+  <div id="undo-rerender-layout" style="display:flex;gap:17px;width:600px">
+    <div style="width:100px;height:20px">Left</div>
+    <button id="undo-rerender-target" style="width:130px;height:20px">Middle</button>
+    <div style="width:150px;height:20px">Right</div>
+  </div>
+  <div id="undo-parent-rerender-layout" style="display:flex;gap:11px;width:600px">
+    <div style="width:90px;height:20px">One</div>
+    <button id="undo-parent-rerender-target" style="width:120px;height:20px">Two</button>
+    <div style="width:140px;height:20px">Three</div>
+  </div>
+  <div id="undo-multi-rerender-layout" style="display:flex;gap:9px;width:600px">
+    <button>Item</button><button>Item</button><button>Item</button><button>Item</button>
+  </div>
   <main id="app"></main>
+  <ul id="static-list">
+    <li>A</li>
+    <li>B</li>
+    <li>C</li>
+  </ul>
   <output id="test-result">running</output>
   <script>
     window.renderFixture = () => {
@@ -17,6 +35,14 @@
       removable.id = 'dynamic-remove';
       removable.textContent = 'Remove me';
       app.append(removable);
+      const dynamicList = document.createElement('ul');
+      dynamicList.id = 'dynamic-list';
+      for (const label of ['A', 'B', 'C']) {
+        const item = document.createElement('li');
+        item.textContent = label;
+        dynamicList.append(item);
+      }
+      app.append(dynamicList);
       window.setTimeout(() => title.setAttribute('data-state', 'live'), 40);
     };
     window.renderFixture();
@@ -38,6 +64,66 @@
         window.showSaveFilePicker = undefined;
 
         document.querySelector('[data-action="edit-mode"]').click();
+        const undoTarget = document.querySelector('#undo-rerender-target');
+        const undoParent = undoTarget.parentElement;
+        const undoTargetRect = undoTarget.getBoundingClientRect();
+        let undoTargetClicks = 0;
+        undoTarget.addEventListener('htmlive-test-click', () => { undoTargetClicks += 1; });
+        undoTarget.dispatchEvent(new Event('htmlive-test-click'));
+        undoTarget.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        document.querySelector('[data-action="delete-selected"]').click();
+        const rerenderedRight = undoParent.lastElementChild.cloneNode(true);
+        rerenderedRight.removeAttribute('data-ai-id');
+        undoParent.lastElementChild.replaceWith(rerenderedRight);
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', code: 'KeyZ', ctrlKey: true, bubbles: true }));
+        const restoredUndoTarget = document.querySelector('#undo-rerender-target');
+        const restoredUndoOrder = Array.from(undoParent.children, (node) => node.textContent).join(',');
+        if (restoredUndoOrder !== 'Left,Middle,Right') {
+          throw new Error(`undo restored target in wrong DOM position after sibling rerender: ${restoredUndoOrder}`);
+        }
+        if (restoredUndoTarget !== undoTarget) throw new Error('undo replaced the original deleted node');
+        const restoredUndoRect = restoredUndoTarget.getBoundingClientRect();
+        if (restoredUndoRect.x !== undoTargetRect.x || restoredUndoRect.width !== undoTargetRect.width) {
+          throw new Error(`undo restored wrong layout geometry: before=${undoTargetRect.x}/${undoTargetRect.width}, after=${restoredUndoRect.x}/${restoredUndoRect.width}`);
+        }
+        restoredUndoTarget.dispatchEvent(new Event('htmlive-test-click'));
+        if (undoTargetClicks !== 2) throw new Error('undo lost the deleted node event listener');
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', code: 'KeyZ', ctrlKey: true, shiftKey: true, bubbles: true }));
+        if (document.querySelector('#undo-rerender-target')) throw new Error('redo did not remove the restored node');
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', code: 'KeyZ', ctrlKey: true, bubbles: true }));
+        if (Array.from(undoParent.children, (node) => node.textContent).join(',') !== 'Left,Middle,Right') {
+          throw new Error('undo after redo did not restore the original position');
+        }
+
+        const parentRerenderTarget = document.querySelector('#undo-parent-rerender-target');
+        const originalParent = parentRerenderTarget.parentElement;
+        parentRerenderTarget.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        document.querySelector('[data-action="delete-selected"]').click();
+        const rerenderedParent = originalParent.cloneNode(true);
+        rerenderedParent.querySelectorAll('[data-ai-id]').forEach((node) => node.removeAttribute('data-ai-id'));
+        rerenderedParent.removeAttribute('data-ai-id');
+        originalParent.replaceWith(rerenderedParent);
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', code: 'KeyZ', ctrlKey: true, bubbles: true }));
+        const restoredParentOrder = Array.from(rerenderedParent.children, (node) => node.textContent).join(',');
+        if (restoredParentOrder !== 'One,Two,Three') {
+          throw new Error(`undo failed after parent rerender: ${restoredParentOrder}`);
+        }
+
+        const multiParent = document.querySelector('#undo-multi-rerender-layout');
+        const originalMultiChildren = Array.from(multiParent.children);
+        originalMultiChildren[0].dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        originalMultiChildren[1].dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: true }));
+        document.querySelector('[data-action="delete-selected"]').click();
+        const rerenderedMultiParent = multiParent.cloneNode(true);
+        rerenderedMultiParent.querySelectorAll('[data-ai-id]').forEach((node) => node.removeAttribute('data-ai-id'));
+        rerenderedMultiParent.removeAttribute('data-ai-id');
+        multiParent.replaceWith(rerenderedMultiParent);
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', code: 'KeyZ', ctrlKey: true, bubbles: true }));
+        if (rerenderedMultiParent.children.length !== 4
+          || rerenderedMultiParent.children[0] !== originalMultiChildren[0]
+          || rerenderedMultiParent.children[1] !== originalMultiChildren[1]) {
+          throw new Error('multi-delete undo restored identical siblings in the wrong order');
+        }
         const title = document.querySelector('#dynamic-title');
         title.dispatchEvent(new MouseEvent('click', { bubbles: true }));
         title.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
@@ -54,6 +140,13 @@
         const removable = document.querySelector('#dynamic-remove');
         removable.dispatchEvent(new MouseEvent('click', { bubbles: true }));
         document.querySelector('[data-action="delete-selected"]').click();
+
+        const staticMiddle = document.querySelector('#static-list > li:nth-child(2)');
+        staticMiddle.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        document.querySelector('[data-action="delete-selected"]').click();
+        const dynamicMiddle = document.querySelector('#dynamic-list > li:nth-child(2)');
+        dynamicMiddle.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        document.querySelector('[data-action="delete-selected"]').click();
         document.querySelector('[data-action="export-html"]').click();
 
         for (let index = 0; index < 40 && !exportedBlob; index += 1) {
@@ -62,6 +155,13 @@
         if (!exportedBlob) throw new Error('export did not produce a blob');
         const html = await exportedBlob.text();
         const exportedDocument = new DOMParser().parseFromString(html, 'text/html');
+        const exportedCommentWalker = exportedDocument.createTreeWalker(exportedDocument, NodeFilter.SHOW_COMMENT);
+        let exportedComment;
+        while ((exportedComment = exportedCommentWalker.nextNode())) {
+          if ((exportedComment.data || '').startsWith('ai-editor-removed:')) {
+            throw new Error('internal remove marker leaked into export');
+          }
+        }
         if (exportedDocument.querySelector('#dynamic-title')?.getAttribute('data-htmlive-id') !== stableId) {
           throw new Error('stable data-htmlive-id missing from export');
         }
@@ -92,6 +192,14 @@
         if (exportedTitle.style.color !== 'rgb(18, 52, 86)') throw new Error('style patch was not replayed');
         if (exportedTitle.getAttribute('data-state') !== 'live') throw new Error('unmodified dynamic attribute was frozen');
         if (frame.contentDocument.querySelector('#dynamic-remove')) throw new Error('remove patch was not replayed after render');
+        const staticItems = Array.from(frame.contentDocument.querySelectorAll('#static-list > li'), (item) => item.textContent);
+        if (staticItems.join(',') !== 'A,C') {
+          throw new Error(`static positional removal deleted the wrong sibling: ${staticItems.join(',')}`);
+        }
+        const dynamicItems = Array.from(frame.contentDocument.querySelectorAll('#dynamic-list > li'), (item) => item.textContent);
+        if (dynamicItems.join(',') !== 'A,C') {
+          throw new Error(`dynamic positional removal was not replayed safely: ${dynamicItems.join(',')}`);
+        }
         exportedTitle.click();
         if (frame.contentWindow.fixtureClicks !== 1) throw new Error('original event listener was lost');
         result.textContent = 'pass';
