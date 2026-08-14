@@ -44,7 +44,13 @@
               { aiId: titleId, action: 'html', html: '简洁而面向未来' }
             ];
           const content = `已完成修改。\n\`\`\`json\n${JSON.stringify(mods)}\n\`\`\``;
-          const body = `data: ${JSON.stringify({ choices: [{ delta: { content } }] })}\n\ndata: [DONE]\n\n`;
+          if (requestCount === 2) {
+            return new Response(JSON.stringify({ choices: [{ message: { content } }] }), {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' }
+            });
+          }
+          const body = `data:${JSON.stringify({ choices: [{ delta: { content } }] })}\n\ndata:[DONE]\n\n`;
           return new Response(body, { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
         };
 

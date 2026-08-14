@@ -2067,6 +2067,26 @@
     return bubble;
   }
 
+  function normalizeModelContent(content) {
+    if (typeof content === "string") return content;
+    if (!Array.isArray(content)) return "";
+    return content.map((part) => {
+      if (typeof part === "string") return part;
+      if (typeof part?.text === "string") return part.text;
+      if (typeof part?.text?.value === "string") return part.text.value;
+      if (typeof part?.content === "string") return part.content;
+      return "";
+    }).join("");
+  }
+
+  function modelTextFromPayload(payload) {
+    const choice = payload?.choices?.[0];
+    return normalizeModelContent(choice?.delta?.content)
+      || normalizeModelContent(choice?.message?.content)
+      || normalizeModelContent(choice?.text)
+      || normalizeModelContent(payload?.output_text);
+  }
+
   // ── API Client ──────────────────────────────────────────────
   async function streamChatCompletion(messages, onChunk, onDone, onError) {
     const settings = loadSettings();
@@ -2097,10 +2117,41 @@
         return;
       }
 
+      const contentType = (resp.headers.get("content-type") || "").toLowerCase();
+      if (!contentType.includes("text/event-stream")) {
+        const body = await resp.text();
+        let content = "";
+        try { content = modelTextFromPayload(JSON.parse(body)); }
+        catch (_) { content = body.trim(); }
+        activeAbortController = null;
+        if (!content) onError("接口返回了空内容，请检查模型或接口的响应格式");
+        else { onChunk(content, content); onDone(content); }
+        return;
+      }
+
       const reader = resp.body.getReader();
       const decoder = new TextDecoder();
       let buf = "";
       let fullContent = "";
+      const finish = () => {
+        activeAbortController = null;
+        if (!fullContent) onError("接口返回了空内容，请检查模型是否支持 Chat Completions");
+        else onDone(fullContent);
+      };
+      const consumeLine = (line) => {
+        const trimmed = line.trim();
+        if (!trimmed || !trimmed.startsWith("data:")) return false;
+        const data = trimmed.slice(5).trimStart();
+        if (data === "[DONE]") { finish(); return true; }
+        try {
+          const delta = modelTextFromPayload(JSON.parse(data));
+          if (delta) {
+            fullContent += delta;
+            onChunk(delta, fullContent);
+          }
+        } catch (_) { /* skip malformed events */ }
+        return false;
+      };
 
       while (true) {
         const { done, value } = await reader.read();
@@ -2110,28 +2161,11 @@
         const lines = buf.split("\n");
         buf = lines.pop() || "";
 
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed || !trimmed.startsWith("data: ")) continue;
-          const data = trimmed.slice(6);
-          if (data === "[DONE]") {
-            activeAbortController = null;
-            onDone(fullContent);
-            return;
-          }
-
-          try {
-            const json = JSON.parse(data);
-            const delta = json.choices && json.choices[0] && json.choices[0].delta && json.choices[0].delta.content;
-            if (delta) {
-              fullContent += delta;
-              onChunk(delta, fullContent);
-            }
-          } catch (_) { /* skip malformed lines */ }
-        }
+        for (const line of lines) if (consumeLine(line)) return;
       }
-      activeAbortController = null;
-      onDone(fullContent);
+      buf += decoder.decode();
+      if (buf && consumeLine(buf)) return;
+      finish();
     } catch (err) {
       activeAbortController = null;
       if (err.name === "AbortError") {
