@@ -7,6 +7,7 @@
       <h1 id="hero-title">旧标题</h1>
       <p id="untargeted-copy">帮助用户理解这个页面的上下文。</p>
       <button id="hero-cta">旧按钮</button>
+      <input id="file-control" type="file">
     </section>
   </main>
   <output id="test-result">running</output>
@@ -56,11 +57,39 @@
 
         const title = document.querySelector('#hero-title');
         const cta = document.querySelector('#hero-cta');
+        let titleProbeCount = 0;
+        title.addEventListener('htmlive-probe', () => { titleProbeCount += 1; });
         title.dispatchEvent(new MouseEvent('click', { bubbles: true }));
         document.querySelector('.ai-editor-annotate-btn').click();
+        const textField = document.querySelector('[data-inspector-prop="text"]');
+        const colorField = document.querySelector('[data-inspector-prop="color"]');
+        const backgroundField = document.querySelector('[data-inspector-prop="background-color"]');
+        const fontSizeField = document.querySelector('[data-inspector-prop="font-size"]');
+        if (!textField || !colorField || !backgroundField || !fontSizeField) {
+          throw new Error('annotation popover did not expose the element basics');
+        }
+        if (textField.value !== '旧标题') throw new Error('annotation popover did not read the element text');
+        textField.value = '先直接编辑标题';
+        colorField.value = '#123456';
+        backgroundField.value = '#abcdef';
+        backgroundField.dispatchEvent(new Event('input', { bubbles: true }));
+        fontSizeField.value = '22';
         let annotationInput = document.querySelector('.ai-editor-annotate-input');
         annotationInput.value = '改成更有科技感的中文标题';
         document.querySelector('.ai-editor-annotate-done').click();
+        if (title.textContent !== '先直接编辑标题') throw new Error('direct text edit was not applied');
+        if (title.style.color !== 'rgb(18, 52, 86)') throw new Error('direct color edit was not applied');
+        if (title.style.backgroundColor !== 'rgb(171, 205, 239)') throw new Error('direct background edit was not applied');
+        if (title.style.fontSize !== '22px') throw new Error('direct font-size edit was not applied');
+
+        document.querySelector('[data-action="edit-mode"]').click();
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', metaKey: true, bubbles: true }));
+        const titleAfterUndo = document.querySelector('#hero-title');
+        titleAfterUndo.dispatchEvent(new CustomEvent('htmlive-probe'));
+        if (titleProbeCount !== 1) throw new Error('inspector undo replaced the element and lost its event listeners');
+        if (titleAfterUndo.textContent !== '旧标题') throw new Error('inspector edit was not undone in place');
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', metaKey: true, shiftKey: true, bubbles: true }));
+        if (document.querySelector('#hero-title').textContent !== '先直接编辑标题') throw new Error('inspector edit was not redone in place');
 
         cta.dispatchEvent(new MouseEvent('click', { bubbles: true }));
         const annotateButtons = document.querySelectorAll('.ai-editor-annotate-btn');
@@ -68,6 +97,23 @@
         annotationInput = document.querySelector('.ai-editor-annotate-input');
         annotationInput.value = '文案改成立即体验，并使用蓝底白字';
         document.querySelector('.ai-editor-annotate-done').click();
+        if (cta.style.backgroundColor) throw new Error('saving an annotation changed a transparent background unexpectedly');
+
+        const fileControl = document.querySelector('#file-control');
+        fileControl.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        const fileAnnotateButtons = document.querySelectorAll('.ai-editor-annotate-btn');
+        fileAnnotateButtons[fileAnnotateButtons.length - 1].click();
+        const fileTextField = document.querySelector('[data-inspector-prop="text"]');
+        if (!fileTextField.disabled) throw new Error('non-text input exposed its submission value as editable copy');
+        fileTextField.value = 'must-not-throw';
+        const transparentButton = document.querySelector('.ai-editor-inspector-transparent');
+        transparentButton.click();
+        if (!transparentButton.classList.contains('ai-editor-active')) throw new Error('transparent control did not activate');
+        document.querySelector('.ai-editor-annotate-done').click();
+        if (!['transparent', 'rgba(0, 0, 0, 0)'].includes(fileControl.style.backgroundColor)) {
+          throw new Error(`background color could not be restored to transparent: ${fileControl.style.backgroundColor}`);
+        }
+        cta.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 
         const chatInput = document.querySelector('.ai-editor-input');
         if (chatInput.value) throw new Error('test requires an empty global instruction');
@@ -122,6 +168,15 @@
         await new Promise((resolve) => setTimeout(resolve, 80));
         if (frame.contentDocument.querySelector('#hero-title')?.textContent !== '简洁而面向未来') {
           throw new Error('exported HTML lost the annotated title revision after reload');
+        }
+        if (frame.contentDocument.querySelector('#hero-title')?.style.color !== 'rgb(18, 52, 86)') {
+          throw new Error('exported HTML lost the direct color revision after reload');
+        }
+        if (frame.contentDocument.querySelector('#hero-title')?.style.backgroundColor !== 'rgb(171, 205, 239)') {
+          throw new Error('exported HTML lost the direct background revision after reload');
+        }
+        if (frame.contentDocument.querySelector('#hero-title')?.style.fontSize !== '22px') {
+          throw new Error('exported HTML lost the direct font-size revision after reload');
         }
         if (frame.contentDocument.querySelector('#hero-cta')?.textContent !== '立即体验') {
           throw new Error('exported HTML lost the annotated CTA revision after reload');

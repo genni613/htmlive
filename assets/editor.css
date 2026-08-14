@@ -151,13 +151,151 @@
 .ai-editor-annotate-popover {
   position: fixed;
   z-index: 2147483646;
-  width: 240px;
+  width: min(286px, calc(100vw - 16px));
+  max-height: calc(100dvh - 16px);
+  overflow-y: auto;
   background: #fff;
   border: 1px solid rgba(0, 0, 0, 0.12);
   border-radius: 10px;
   box-shadow: 0 8px 24px -4px rgba(0, 0, 0, 0.15);
-  padding: 8px;
+  padding: 10px;
   user-select: text;
+}
+
+.ai-editor-inspector-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  color: #222;
+}
+
+.ai-editor-inspector-header strong,
+.ai-editor-instruction-label {
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.ai-editor-inspector-header code {
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: #f1f1f1;
+  color: #777;
+  font-size: 10px;
+}
+
+.ai-editor-inspector {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px;
+}
+
+.ai-editor-inspector-field {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+  color: #777;
+  font-size: 10px;
+}
+
+.ai-editor-inspector-field:first-child {
+  grid-column: 1 / -1;
+}
+
+.ai-editor-inspector-field input[type="text"],
+.ai-editor-inspector-field input[type="number"] {
+  width: 100%;
+  min-width: 0;
+  height: 28px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  padding: 4px 7px;
+  outline: none;
+  background: #fafafa;
+  color: #222;
+  font-size: 11px;
+}
+
+.ai-editor-inspector-field input:focus {
+  border-color: #111;
+  background: #fff;
+}
+
+.ai-editor-inspector-field input:disabled {
+  color: #999;
+  cursor: not-allowed;
+}
+
+.ai-editor-inspector-field input[type="color"] {
+  width: 100%;
+  height: 28px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  padding: 3px;
+  background: #fafafa;
+  cursor: pointer;
+}
+
+.ai-editor-inspector-color {
+  display: flex;
+  gap: 4px;
+}
+
+.ai-editor-inspector-color input[type="color"] {
+  min-width: 0;
+  flex: 1;
+}
+
+.ai-editor-inspector-transparent {
+  flex: none;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  padding: 0 7px;
+  background: #fafafa;
+  color: #777;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.ai-editor-inspector-transparent:hover,
+.ai-editor-inspector-transparent.ai-editor-active {
+  border-color: #999;
+  background: #eee;
+  color: #222;
+}
+
+.ai-editor-inspector-size {
+  position: relative;
+  display: block;
+}
+
+.ai-editor-inspector-size input {
+  padding-right: 25px !important;
+}
+
+.ai-editor-inspector-size em {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  color: #999;
+  font-size: 10px;
+  font-style: normal;
+  pointer-events: none;
+}
+
+.ai-editor-inspector-hint {
+  grid-column: 1 / -1;
+  margin: -1px 0 0;
+  color: #b16b19;
+  font-size: 10px;
+}
+
+.ai-editor-instruction-label {
+  margin: 10px 0 5px;
+  padding-top: 9px;
+  border-top: 1px solid #eee;
+  color: #222;
 }
 
 .ai-editor-annotate-input {

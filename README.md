@@ -46,7 +46,7 @@ Small changes to an AI-generated page can mean another prompt, another generatio
 - Visual element selection, multi-selection, and parent/child navigation
 - Direct text editing with a double-click
 - Component movement and resize handles
-- Text color, font-size, and font-family controls
+- An element inspector that reads copy, text color, background color, and font size for direct editing while keeping a separate AI instruction on the element
 - Delete selected text, buttons, or other elements, including multi-selection; exported pages retain those removals even if their own scripts re-render the page
 - Undo/redo for direct edits, plus per-change undo for AI edits
 - Optional AI chat preview with an OpenAI-compatible endpoint

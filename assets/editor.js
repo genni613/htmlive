@@ -8,7 +8,7 @@
   if (document.querySelector(".ai-editor-root")) return;
 
   const NS = "ai-editor";
-  const VERSION = "0.3.1";
+  const VERSION = "0.4.0";
   const AI_ID = "data-ai-id";
   const HTMLIVE_ID = "data-htmlive-id";
   const REMOVE_MARKER_PREFIX = `${NS}-removed:`;
@@ -195,6 +195,7 @@
 
   function isMeaningful(el) {
     if (hasDirectText(el)) return true;
+    if (/^(IMG|VIDEO|CANVAS|SVG|BUTTON|A|INPUT|SELECT|TEXTAREA|IFRAME)$/.test(el.tagName)) return true;
     if (el.querySelector("img,video,canvas,svg,button,a,input,select,textarea,iframe")) return true;
     if (el.children.length > 1) return true;
     return false;
@@ -965,6 +966,8 @@
       clearSelection();
       for (const el of restoredElements) addSelection(el);
       updateTags();
+    } else if (change.type === "in-place") {
+      restored = change.undo();
     } else {
       restored = restoreSnapshot(change.before);
     }
@@ -978,6 +981,9 @@
     if (!change) return false;
     if (change.type === "remove") {
       if (!reapplyRemoval(change.entries)) return false;
+      domHistory.push(change);
+    } else if (change.type === "in-place") {
+      if (!change.redo()) return false;
       domHistory.push(change);
     } else if (restoreSnapshot(change.after)) {
       domHistory.push(change);
@@ -996,12 +1002,159 @@
   }
 
   // ── Annotation popover ─────────────────────────────────────
+  function inspectEditableText(el) {
+    const editableInputTypes = new Set(["text", "search", "tel", "url", "email", "password", "number", "button", "submit", "reset"]);
+    if (el.tagName === "TEXTAREA" || (el.tagName === "INPUT" && editableInputTypes.has(el.type))) {
+      return {
+        value: el.value || "",
+        editable: true,
+        set(value) {
+          el.value = value;
+          if (el.tagName === "INPUT") el.setAttribute("value", value);
+          else el.textContent = value;
+        },
+      };
+    }
+
+    if (el.tagName === "INPUT") {
+      return { value: "", editable: false, set() {} };
+    }
+
+    const nodes = [];
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, {
+      acceptNode(node) {
+        const parent = node.parentElement;
+        if (!parent || /^(SCRIPT|STYLE|NOSCRIPT)$/.test(parent.tagName)) return NodeFilter.FILTER_REJECT;
+        return node.data.trim() ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+      },
+    });
+    while (walker.nextNode()) nodes.push(walker.currentNode);
+
+    if (nodes.length !== 1) {
+      return {
+        value: (el.innerText || el.textContent || "").replace(/\s+/g, " ").trim(),
+        editable: false,
+        set() {},
+      };
+    }
+
+    const node = nodes[0];
+    return {
+      value: node.data.trim(),
+      editable: true,
+      set(value) {
+        const leading = node.data.match(/^\s*/)?.[0] || "";
+        const trailing = node.data.match(/\s*$/)?.[0] || "";
+        node.data = leading + value + trailing;
+      },
+    };
+  }
+
+  function createInspectorField(labelText, input) {
+    const label = document.createElement("label");
+    label.className = `${NS}-inspector-field`;
+    const caption = document.createElement("span");
+    caption.textContent = labelText;
+    label.appendChild(caption);
+    label.appendChild(input);
+    return label;
+  }
+
   function showAnnotationPopover(el, btn) {
     removeAnnotationPopover();
 
     const aiId = el.getAttribute(AI_ID);
+    const computed = getComputedStyle(el);
+    const textBinding = inspectEditableText(el);
+    const initialColor = cssColorToHex(computed.color) || "#111111";
+    const computedBackground = cssColorToHex(computed.backgroundColor);
+    const initialBackground = computedBackground || "#ffffff";
+    const initialFontSize = Math.round(parseFloat(computed.fontSize) || 16);
+    let backgroundTouched = false;
+    let backgroundCleared = false;
     const popover = document.createElement("div");
     popover.className = `${NS}-root ${NS}-annotate-popover`;
+    popover.setAttribute("role", "dialog");
+    popover.setAttribute("aria-label", "编辑元素基础信息和 AI 修改要求");
+
+    const inspectorHeader = document.createElement("div");
+    inspectorHeader.className = `${NS}-inspector-header`;
+    const inspectorTitle = document.createElement("strong");
+    inspectorTitle.textContent = "元素基础信息";
+    const tag = document.createElement("code");
+    tag.textContent = `<${el.tagName.toLowerCase()}>`;
+    inspectorHeader.appendChild(inspectorTitle);
+    inspectorHeader.appendChild(tag);
+
+    const inspector = document.createElement("div");
+    inspector.className = `${NS}-inspector`;
+
+    const textInput = document.createElement("input");
+    textInput.type = "text";
+    textInput.value = textBinding.value;
+    textInput.disabled = !textBinding.editable;
+    textInput.dataset.inspectorProp = "text";
+    textInput.title = textBinding.editable ? "" : "该元素包含多段内容，请在下方描述希望如何修改";
+
+    const colorInput = document.createElement("input");
+    colorInput.type = "color";
+    colorInput.value = initialColor;
+    colorInput.dataset.inspectorProp = "color";
+
+    const backgroundInput = document.createElement("input");
+    backgroundInput.type = "color";
+    backgroundInput.value = initialBackground;
+    backgroundInput.dataset.inspectorProp = "background-color";
+    backgroundInput.addEventListener("input", () => {
+      backgroundTouched = true;
+      backgroundCleared = false;
+    });
+
+    const backgroundControl = document.createElement("span");
+    backgroundControl.className = `${NS}-inspector-color`;
+    const transparentBtn = document.createElement("button");
+    transparentBtn.type = "button";
+    transparentBtn.className = `${NS}-inspector-transparent`;
+    transparentBtn.textContent = "透明";
+    transparentBtn.setAttribute("aria-label", "将背景颜色设为透明");
+    transparentBtn.onclick = (event) => {
+      event.stopPropagation();
+      backgroundCleared = true;
+      backgroundTouched = false;
+      transparentBtn.classList.add(`${NS}-active`);
+    };
+    backgroundControl.appendChild(backgroundInput);
+    backgroundControl.appendChild(transparentBtn);
+
+    const fontSizeWrap = document.createElement("span");
+    fontSizeWrap.className = `${NS}-inspector-size`;
+    const fontSizeInput = document.createElement("input");
+    fontSizeInput.type = "number";
+    fontSizeInput.min = "8";
+    fontSizeInput.max = "240";
+    fontSizeInput.step = "1";
+    fontSizeInput.value = initialFontSize;
+    fontSizeInput.dataset.inspectorProp = "font-size";
+    const unit = document.createElement("em");
+    unit.textContent = "px";
+    fontSizeWrap.appendChild(fontSizeInput);
+    fontSizeWrap.appendChild(unit);
+
+    inspector.appendChild(createInspectorField("文案", textInput));
+    inspector.appendChild(createInspectorField("文字颜色", colorInput));
+    inspector.appendChild(createInspectorField(computedBackground ? "背景颜色" : "背景颜色（透明）", backgroundControl));
+    inspector.appendChild(createInspectorField("字号", fontSizeWrap));
+
+    if (!textBinding.editable && textBinding.value) {
+      const hint = document.createElement("p");
+      hint.className = `${NS}-inspector-hint`;
+      hint.textContent = "检测到多段文案，请用下方要求描述修改，避免破坏子元素。";
+      inspector.appendChild(hint);
+    }
+
+    const instructionLabel = document.createElement("div");
+    instructionLabel.className = `${NS}-instruction-label`;
+    instructionLabel.textContent = "希望怎么修改";
 
     const textarea = document.createElement("textarea");
     textarea.className = `${NS}-annotate-input`;
@@ -1021,6 +1174,30 @@
     doneBtn.textContent = "保存";
 
     const save = () => {
+      const before = createElementSnapshot(el, "manual-inspector");
+      const beforeState = captureInspectorState(el, textBinding);
+      const fontSize = normalizeFontSize(fontSizeInput.value, initialFontSize);
+      const desiredState = {
+        text: textBinding.editable ? textInput.value : beforeState.text,
+        styles: { ...beforeState.styles },
+      };
+      if (colorInput.value !== initialColor) desiredState.styles.color = { value: colorInput.value, priority: "" };
+      if (backgroundCleared) desiredState.styles["background-color"] = { value: "transparent", priority: "" };
+      else if (backgroundTouched || (computedBackground && backgroundInput.value !== initialBackground)) {
+        desiredState.styles["background-color"] = { value: backgroundInput.value, priority: "" };
+      }
+      if (fontSize !== initialFontSize) desiredState.styles["font-size"] = { value: `${fontSize}px`, priority: "" };
+      applyInspectorState(el, desiredState);
+      if (el.outerHTML !== before.outerHTML) {
+        const after = createElementSnapshot(el, "manual-inspector");
+        recordDomChange({
+          type: "in-place",
+          before,
+          after,
+          undo: () => applyInspectorState(el, beforeState),
+          redo: () => applyInspectorState(el, desiredState),
+        });
+      }
       const val = textarea.value.trim();
       if (val) annotations.set(aiId, val);
       else annotations.delete(aiId);
@@ -1042,10 +1219,20 @@
       if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); save(); }
       e.stopPropagation();
     });
-    textarea.addEventListener("click", (e) => e.stopPropagation());
+    popover.addEventListener("click", (e) => e.stopPropagation());
+    popover.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        removeAnnotationPopover();
+      }
+      e.stopPropagation();
+    });
 
     actions.appendChild(clearNoteBtn);
     actions.appendChild(doneBtn);
+    popover.appendChild(inspectorHeader);
+    popover.appendChild(inspector);
+    popover.appendChild(instructionLabel);
     popover.appendChild(textarea);
     popover.appendChild(actions);
 
@@ -1054,8 +1241,11 @@
     popover.style.right = Math.max(8, window.innerWidth - r.right) + "px";
 
     document.body.appendChild(popover);
+    if (popover.getBoundingClientRect().bottom > window.innerHeight - 8) {
+      popover.style.top = Math.max(8, r.top - popover.offsetHeight - 6) + "px";
+    }
     activePopover = popover;
-    textarea.focus();
+    (textBinding.editable ? textInput : textarea).focus();
   }
 
   function removeAnnotationPopover() {
@@ -1063,6 +1253,28 @@
       activePopover.remove();
       activePopover = null;
     }
+  }
+
+  function captureInspectorState(el, textBinding = inspectEditableText(el)) {
+    const styles = {};
+    for (const property of ["color", "background-color", "font-size"]) {
+      styles[property] = {
+        value: el.style.getPropertyValue(property),
+        priority: el.style.getPropertyPriority(property),
+      };
+    }
+    return { text: textBinding.editable ? textBinding.value : null, styles };
+  }
+
+  function applyInspectorState(el, state) {
+    if (!el || !el.isConnected) return false;
+    const textBinding = inspectEditableText(el);
+    if (state.text !== null && textBinding.editable) textBinding.set(state.text);
+    for (const [property, style] of Object.entries(state.styles)) {
+      setInlineStyle(el, property, style.value, style.priority);
+    }
+    positionAllOverlays();
+    return true;
   }
 
   // ── Chat panel ─────────────────────────────────────────────
@@ -1221,9 +1433,21 @@
   }
 
   function cssColorToHex(value) {
-    const parts = String(value).match(/\d+/g);
-    if (!parts || parts.length < 3) return null;
-    return "#" + parts.slice(0, 3).map((p) => Math.max(0, Math.min(255, Number(p))).toString(16).padStart(2, "0")).join("");
+    const match = String(value).match(/^rgba?\(([^)]+)\)$/i);
+    if (!match) return null;
+    const parts = match[1].split(/[\s,\/]+/).filter(Boolean).map(Number);
+    if (parts.length < 3 || parts.slice(0, 3).some(Number.isNaN)) return null;
+    if (parts.length > 3 && parts[3] === 0) return null;
+    return "#" + parts.slice(0, 3).map((part) => Math.round(Math.max(0, Math.min(255, part))).toString(16).padStart(2, "0")).join("");
+  }
+
+  function normalizeFontSize(value, fallback = 16) {
+    return Math.max(8, Math.min(240, Number(value) || fallback));
+  }
+
+  function setInlineStyle(el, property, value, priority = "") {
+    if (value === "") el.style.removeProperty(property);
+    else el.style.setProperty(property, value, priority);
   }
 
   function applyDrawerStyle(input) {
@@ -1232,13 +1456,12 @@
     const prop = input.dataset.styleProp;
     let value = input.value;
     if (prop === "font-size") {
-      const n = Math.max(8, Math.min(240, Number(value) || 16));
+      const n = normalizeFontSize(value);
       value = `${n}px`;
       input.value = n;
     }
     const before = createElementSnapshot(el, "manual-style");
-    if (prop === "font-family" && !value) el.style.removeProperty(prop);
-    else el.style.setProperty(prop, value);
+    setInlineStyle(el, prop, value);
     if (el.outerHTML !== before.outerHTML) {
       recordDomChange({ before, after: createElementSnapshot(el, "manual-style") });
     }
