@@ -8,6 +8,7 @@
   if (document.querySelector(".ai-editor-root")) return;
 
   const NS = "ai-editor";
+  const VERSION = "0.3.1";
   const AI_ID = "data-ai-id";
   const HTMLIVE_ID = "data-htmlive-id";
   const REMOVE_MARKER_PREFIX = `${NS}-removed:`;
@@ -1071,7 +1072,7 @@
     chatPanel.innerHTML = `
       <div class="${NS}-drag-handle">
         <span class="${NS}-drag-title">
-          <span class="${NS}-product-name">HTMLive</span>
+          <span class="${NS}-product-name">HTMLive <small>v${VERSION}</small></span>
           <span class="${NS}-status-dot"></span>
           <span class="${NS}-status-label">选取中</span>
         </span>
@@ -2124,7 +2125,7 @@
         try { content = modelTextFromPayload(JSON.parse(body)); }
         catch (_) { content = body.trim(); }
         activeAbortController = null;
-        if (!content) onError("接口返回了空内容，请检查模型或接口的响应格式");
+        if (!content.trim()) onError("接口返回了空内容，请检查模型或接口的响应格式");
         else { onChunk(content, content); onDone(content); }
         return;
       }
@@ -2135,7 +2136,7 @@
       let fullContent = "";
       const finish = () => {
         activeAbortController = null;
-        if (!fullContent) onError("接口返回了空内容，请检查模型是否支持 Chat Completions");
+        if (!fullContent.trim()) onError("接口返回了空内容，请检查模型是否支持 Chat Completions");
         else onDone(fullContent);
       };
       const consumeLine = (line) => {
@@ -2321,7 +2322,7 @@
         if (mods) {
           applyModifications(mods, aiBubble, displayText, allowedTargets);
         } else {
-          aiBubble.textContent = displayText || "未检测到修改。";
+          aiBubble.textContent = displayText || "模型响应中没有可执行的修改。请确认所选模型会返回 JSON 修改列表。";
         }
         isStreaming = false;
         sendBtn.disabled = false;
@@ -2339,16 +2340,28 @@
 
   // ── Response parser ─────────────────────────────────────────
   function parseResponse(text) {
-    const jsonBlockRegex = /```json\s*\n?([\s\S]*?)\n?\s*```/g;
+    const jsonBlockRegex = /```json\s*\n?([\s\S]*?)\n?\s*```/gi;
     let displayText = text;
     let match;
     let mods = null;
 
+    const extractMods = (parsed) => {
+      if (Array.isArray(parsed)) return parsed;
+      for (const key of ["modifications", "changes", "edits"]) {
+        if (Array.isArray(parsed?.[key])) return parsed[key];
+      }
+      return null;
+    };
+
     while ((match = jsonBlockRegex.exec(text)) !== null) {
       displayText = displayText.replace(match[0], "");
       if (!mods) {
-        try { mods = JSON.parse(match[1].trim()); } catch (_) { /* try next block */ }
+        try { mods = extractMods(JSON.parse(match[1].trim())); } catch (_) { /* try next block */ }
       }
+    }
+
+    if (!mods) {
+      try { mods = extractMods(JSON.parse(text.trim())); } catch (_) { /* response may contain prose */ }
     }
 
     displayText = displayText.trim();

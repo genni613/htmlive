@@ -120,8 +120,8 @@
       var base = location.href.replace(/[^/]*$/, "");
       var link = document.getElementById("bm-link");
       Promise.all([
-        fetch(base + "assets/editor.css").then(function (r) { return r.text(); }),
-        fetch(base + "assets/editor.js").then(function (r) { return r.text(); })
+        fetch(base + "assets/editor.css", { cache: "no-store" }).then(function (r) { return r.text(); }),
+        fetch(base + "assets/editor.js", { cache: "no-store" }).then(function (r) { return r.text(); })
       ]).then(function (results) {
         var cssInjector = "(function(){var s=document.createElement('style');s.setAttribute('data-ai-editor-style','');s.textContent=" + JSON.stringify(results[0]) + ";document.head.appendChild(s);})();";
         link.href = "javascript:" + encodeURIComponent(cssInjector + results[1]);

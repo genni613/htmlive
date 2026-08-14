@@ -31,7 +31,7 @@ export default {
     return new Response(request.method === "HEAD" ? null : decode(asset.body), {
       headers: {
         "Content-Type": asset.contentType,
-        "Cache-Control": pathname === "/index.html" ? "no-cache" : "public, max-age=3600",
+        "Cache-Control": "no-store, max-age=0",
         "X-Content-Type-Options": "nosniff"
       }
     });
